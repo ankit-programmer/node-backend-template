@@ -1,0 +1,38 @@
+{
+  "name": "backend-template",
+  "version": "1.0.0",
+  "description": "Use this template to get new projects up and running fast.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev-consumer": "ts-node-dev src/consumer/index.ts --consumer=example",
+    "dev": "ts-node-dev src/server.ts"
+  },
+  "author": "Ankit Kumar",
+  "license": "ISC",
+  "dependencies": {
+    "amqplib": "^0.10.9",
+    "axios": "^1.13.2",
+    "body-parser": "^2.2.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "luxon": "^3.7.2",
+    "mongodb": "^7.0.0",
+    "redis": "^5.10.0",
+    "snappy": "^7.3.3",
+    "winston": "^3.18.3",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.8.2",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/luxon": "^3.7.1",
+    "@types/node": "^24.10.1"
+  }
+}
