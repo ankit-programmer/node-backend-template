@@ -1,15 +1,19 @@
 import { Channel } from "amqplib";
+import producer from "../config/producer";
 
 
 export const exampleConsumer = {
-    queue: "example_queue",
+    queue: "example_service",
     batch: 1,
     processor: async (message: any, channel: Channel) => {
         try {
             const content = message.content.toString();
-            console.log(`[CONSUMER] Received message: ${content}`);
-            // Process the message here
-            // Acknowledge the message after processing
+            const { replyTo, correlationId } = message.properties;
+            if (replyTo && correlationId) {
+                console.log(`Sending message response to ${replyTo} with correlationId ${correlationId}`);
+                const payload = content;
+                producer.publishToQueue(replyTo, { content }, { correlationId, skipAssert: true });
+            }
             channel.ack(message);
         } catch (error) {
             console.error('[CONSUMER] Error processing message:', error);

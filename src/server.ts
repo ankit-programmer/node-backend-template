@@ -5,6 +5,8 @@ import { AuthMethod, auth } from './middleware/auth';
 import errorHandler from './middleware/error-handler';
 import env from './config/env';
 import exampleRouter from './route/example/index';
+import { Service } from './service/rabbitmq/rpc';
+import { APIResponseBuilder } from './utility';
 
 const app = express();
 const port = env.PORT || 3000;
@@ -20,6 +22,11 @@ app.get('/', (req: Request, res: Response) => {
     res.send('Hello, World!');
 });
 app.use('/example', auth([AuthMethod.NONE]), exampleRouter);
+const exampleService = new Service('example_service');
+app.get('/rpc', async (req: Request, res: Response) => {
+    const response = await exampleService.call({ id: req.params.id });
+    res.json(new APIResponseBuilder().setSuccess(response).build());
+})
 
 app.use(errorHandler as any);
 // Start the server

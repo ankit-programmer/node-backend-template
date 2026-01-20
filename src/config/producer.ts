@@ -1,9 +1,9 @@
 import rabbitmqService, { Connection, Channel } from './rabbitmq';
 import logger from "../logger";
+import { Metadata } from '../consumer';
 
 let rabbitConnection: Connection;
 let rabbitChannel: Channel;
-
 class RabbitMqProducer {
     private static instance: RabbitMqProducer;
 
@@ -31,15 +31,14 @@ class RabbitMqProducer {
             throw error;
         }
     }
-    public async publishToQueue(queueName: string, payload: any) {
+    public async publishToQueue(queueName: string, payload: any, metadata?: Metadata) {
         try {
-            logger.info(`[PRODUCER] Preparing payload...`);
             payload = (typeof payload === 'string') ? payload : JSON.stringify(payload);
             const payloadBuffer: Buffer = Buffer.from(payload);
-            logger.info(`[PRODUCER] Asserting '${queueName}' queue...`);
-            await rabbitChannel.assertQueue(queueName, { durable: true });
-            logger.info(`[PRODUCER] Producing to '${queueName}' queue...`);
-            rabbitChannel.sendToQueue(queueName, payloadBuffer);
+            const options: any = { durable: true };
+            if (metadata && metadata.exclusive) options.exclusive = metadata.exclusive;
+            if (!metadata?.skipAssert) await rabbitChannel.assertQueue(queueName, options);
+            rabbitChannel.sendToQueue(queueName, payloadBuffer, { correlationId: metadata?.correlationId, replyTo: metadata?.replyTo });
         } catch (error: any) {
             console.error('[RabbitMqProducer] publishToQueue', error);
             throw error;

@@ -3,7 +3,7 @@ import { Connection, Channel } from "amqplib";
 import logger from "../logger";
 import rabbitmq from "../config/rabbitmq";
 import { delay } from "../utility";
-import { exampleConsumer } from "./example";
+import { exampleConsumer } from "./rpc-consumer";
 const CONSUMERS: IConsumer[] = [];
 console.log(args, "args");
 switch (args?.consumer) {
@@ -19,10 +19,16 @@ export interface IConsumer {
   queue: string,
   processor: Function,
   clean?: Function,
-  batch: number
+  batch: number,
+  metadata?: Metadata
 };
-
-class Consumer {
+export interface Metadata {
+  correlationId?: string;
+  replyTo?: string;
+  exclusive?: boolean;
+  skipAssert?: boolean;
+}
+export class Consumer {
   private connection?: Connection;
   private channel?: Channel;
   private queue: string;
@@ -31,18 +37,22 @@ class Consumer {
   private bufferSize: number = 1;
   private rabbitService;
   private shutdown = false;
+  private metadata?: Metadata;
   constructor(obj: IConsumer, connectionString?: string) {
     this.queue = obj.queue;
     this.processor = obj.processor;
     this.bufferSize = obj.batch;
     this.clean = obj.clean;
     this.rabbitService = rabbitmq(connectionString);
+    this.metadata = obj.metadata;
     // Setup the consumer
     this.rabbitService.on("connect", async (connection: Connection) => {
       this.connection = connection;
       this.channel = await this.connection?.createChannel();
       this.channel?.prefetch(this.bufferSize);
-      this.channel?.assertQueue(this.queue, { durable: true });
+      const options: any = { durable: true };
+      if (this.metadata && this.metadata.exclusive) options.exclusive = this.metadata.exclusive;
+      this.channel?.assertQueue(this.queue, options);
       this.start();
     });
     // Stop the consumer if an error occurs
@@ -77,7 +87,9 @@ class Consumer {
   public async queueStatus() {
     let status = { messageCount: 0, consumerCount: 0 };
     if (this.channel) {
-      const queue = await this.channel.assertQueue(this.queue, { durable: true }).catch(error => { return { messageCount: 0, consumerCount: 0 } });
+      const options: any = { durable: true };
+      if (this.metadata && this.metadata.exclusive) options.exclusive = this.metadata.exclusive;
+      const queue = await this.channel.assertQueue(this.queue, options).catch(error => { return { messageCount: 0, consumerCount: 0 } });
       status = queue;
     }
     return status;
