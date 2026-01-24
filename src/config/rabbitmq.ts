@@ -8,7 +8,7 @@ export type Channel = amqp.Channel;
 
 const RABBIT_CONNECTION_STRING = env.QUEUE_CONNECTION_URL;
 const RETRY_INTERVAL = 5000; // in millis
-if(!RABBIT_CONNECTION_STRING) throw new Error("RABBIT_CONNECTION_STRING is not defined in environment variables");
+if (!RABBIT_CONNECTION_STRING) throw new Error("RABBIT_CONNECTION_STRING is not defined in environment variables");
 
 class RabbitConnection extends EventEmitter {
     private static instance: RabbitConnection;
@@ -63,6 +63,10 @@ class RabbitConnection extends EventEmitter {
 
             if (!this.gracefulClose) this.setupConnection();
         });
+
+        this.connection.on("error", (error) => {
+            this.emit('error', error);
+        })
     }
 
     public closeConnection() {

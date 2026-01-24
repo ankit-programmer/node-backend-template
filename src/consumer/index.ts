@@ -23,6 +23,11 @@ export interface IConsumer {
   metadata?: Metadata
 };
 export interface Metadata {
+  exchange?: {
+    name: string,
+    type?: "direct" | "topic" | "fanout",
+    routingKey?: string
+  }
   correlationId?: string;
   replyTo?: string;
   exclusive?: boolean;
@@ -52,7 +57,12 @@ export class Consumer {
       this.channel?.prefetch(this.bufferSize);
       const options: any = { durable: true };
       if (this.metadata && this.metadata.exclusive) options.exclusive = this.metadata.exclusive;
-      this.channel?.assertQueue(this.queue, options);
+      await this.channel?.assertQueue(this.queue, options);
+      const exchange = this.metadata?.exchange;
+      if (exchange) {
+        await this.channel.assertExchange(exchange.name, exchange.type || "direct", { durable: true });
+        await this.channel.bindQueue(this.queue, exchange.name, exchange.routingKey || "default");
+      }
       this.start();
     });
     // Stop the consumer if an error occurs

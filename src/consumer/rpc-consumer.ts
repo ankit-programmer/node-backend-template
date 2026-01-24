@@ -1,10 +1,16 @@
 import { Channel } from "amqplib";
 import producer from "../config/producer";
+import { IConsumer } from ".";
 
 
-export const exampleConsumer = {
+export const exampleConsumer: IConsumer = {
     queue: "example_service",
     batch: 1,
+    metadata: {
+        exchange: {
+            name: "example_service"
+        }
+    },
     processor: async (message: any, channel: Channel) => {
         try {
             const content = message.content.toString();

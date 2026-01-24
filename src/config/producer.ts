@@ -4,6 +4,7 @@ import { Metadata } from '../consumer';
 
 let rabbitConnection: Connection;
 let rabbitChannel: Channel;
+interface ExchangeOptions { replyTo?: string, correlationId?: string, routingKey?: string };
 class RabbitMqProducer {
     private static instance: RabbitMqProducer;
 
@@ -15,17 +16,28 @@ class RabbitMqProducer {
             rabbitConnection = connection;
             logger.info(`[PRODUCER] Creating channel...`);
             rabbitChannel = await rabbitConnection.createChannel();
-        });
+        }).on("error", (error) => {
+        })
     }
 
     public static getSingletonInstance(): RabbitMqProducer {
         return RabbitMqProducer.instance ||= new RabbitMqProducer();
     }
-    public async publish(exchange: string, content: any, routingKey: string = "default") {
+    public async isExchangeAvailable(name: string): Promise<boolean> {
         try {
+            const exists = await rabbitChannel.checkExchange(name);
+            return true;
+        } catch (error) {
+            return false;
+        }
+        return false;
+    }
+    public async publish(exchange: string, content: any, options: ExchangeOptions) {
+        try {
+            if (!options.routingKey) options.routingKey = "default";
             content = (typeof content === 'string') ? content : JSON.stringify(content);
             const payloadBuffer: Buffer = Buffer.from(content);
-            rabbitChannel.publish(exchange, routingKey, payloadBuffer);
+            rabbitChannel.publish(exchange, options.routingKey, payloadBuffer, options);
         } catch (error: any) {
             console.error('[RabbitMqProducer] publish', error);
             throw error;

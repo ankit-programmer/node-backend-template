@@ -5,6 +5,7 @@ import { Consumer } from '../../consumer';
 import logger from "../../logger";
 import { v4 as uuidv4 } from 'uuid';
 import { nanoid } from 'nanoid';
+import { delay } from '../../utility';
 
 interface Options {
     timeout?: number; // in seconds; default 30 seconds
@@ -14,8 +15,9 @@ export class Service extends EventEmitter {
     private id: string;
     private name: string;
     private consumer: Consumer;
+    private isExchangeAvailable: boolean = false;
     private options: Options = {
-        timeout: 30000,
+        timeout: 30,
         concurrency: 20
     };
     constructor(name: string, options?: Options) {
@@ -32,7 +34,21 @@ export class Service extends EventEmitter {
                 exclusive: true
             }
         });
+        this.init();
+    }
 
+    private async init() {
+        // Wait for exchange
+        let retryConter = 1;
+        while (!this.isExchangeAvailable) {
+            this.isExchangeAvailable = await producer.isExchangeAvailable(this.name);
+            if (this.isExchangeAvailable) {
+                logger.info(`Exchange (${this.name}) is available.`);
+                continue;
+            };
+            await delay(retryConter * 10000);
+            retryConter++;
+        }
     }
     private responseHandler(msg: any, channel: Channel) {
         try {
@@ -52,8 +68,9 @@ export class Service extends EventEmitter {
         }
     }
 
-    public call(payload: any): Promise<any> {
+    public call(payload: any, routingKey: string = "default"): Promise<any> {
         return new Promise((resolve, reject) => {
+            if (!this.isExchangeAvailable) throw new Error(`Exchange (${this.name}) is not available, please create it and bind queues to it.`)
             const correlationId = uuidv4();
             const responseListener = (response: any) => {
                 clearTimeout(timeout);
@@ -64,7 +81,7 @@ export class Service extends EventEmitter {
                 this.removeListener(correlationId, responseListener);
                 reject(new Error('Request timed out'));
             }, 1000 * this.options.timeout!);
-            producer.publishToQueue(this.name, payload, { replyTo: this.id, correlationId }).catch(error => {
+            producer.publish(this.name, payload, { replyTo: this.id, correlationId, routingKey }).catch(error => {
                 clearTimeout(timeout);
                 this.removeListener(correlationId, responseListener);
                 reject(new Error('Failed to send request: ' + error.message));
