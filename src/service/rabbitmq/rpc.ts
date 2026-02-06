@@ -67,7 +67,12 @@ export class Service extends EventEmitter {
             channel.ack(msg);
         }
     }
-
+    /**
+     * Use this method if your consumer is configured to return response
+     * @param payload 
+     * @param routingKey 
+     * @returns the object returned by consumer
+     */
     public call(payload: any, routingKey: string = "default"): Promise<any> {
         return new Promise((resolve, reject) => {
             if (!this.isExchangeAvailable) throw new Error(`Exchange (${this.name}) is not available, please create it and bind queues to it.`)
@@ -86,6 +91,19 @@ export class Service extends EventEmitter {
                 this.removeListener(correlationId, responseListener);
                 reject(new Error('Failed to send request: ' + error.message));
             });
+        });
+    }
+    /**
+     * Use this method if you don't want to wait for response or consumer don't return response
+     * @param payload 
+     * @param routingKey 
+     * @returns true if published successfully and false if an error occurred
+     */
+    public async publish(payload: any, routingKey: string = "default"): Promise<boolean> {
+        if (!this.isExchangeAvailable) throw new Error(`Exchange (${this.name}) is not available, please create it and bind queues to it.`)
+        return await producer.publish(this.name, payload, { routingKey }).then(() => true).catch((error) => {
+            logger.error(error);
+            return false
         });
     }
 }
