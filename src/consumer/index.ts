@@ -53,24 +53,37 @@ export class Consumer {
     // Setup the consumer
     this.rabbitService.on("connect", async (connection: Connection) => {
       this.connection = connection;
-      this.channel = await this.connection?.createChannel();
-      this.channel?.prefetch(this.bufferSize);
-      const options: any = { durable: true };
-      if (this.metadata && this.metadata.exclusive) options.exclusive = this.metadata.exclusive;
-      await this.channel?.assertQueue(this.queue, options);
-      const exchange = this.metadata?.exchange;
-      if (exchange) {
-        await this.channel.assertExchange(exchange.name, exchange.type || "direct", { durable: true });
-        await this.channel.bindQueue(this.queue, exchange.name, exchange.routingKey || "default");
-      }
-      this.start();
+      this.shutdown = false;
+      this.init();
     });
     // Stop the consumer if an error occurs
     this.rabbitService.on('error', (error: any) => {
       logger.error(error);
       this.stop();
     });
+    this.init()
   }
+  // Initialize the consumer
+  private async init() {
+    this.connection = this.rabbitService.getConnection();
+    if (!this.connection) {
+      logger.error("Connection not found");
+      return;
+    }
+    this.channel = await this.connection?.createChannel();
+    this.channel?.prefetch(this.bufferSize);
+    const options: any = { durable: true };
+    if (this.metadata && this.metadata.exclusive) options.exclusive = this.metadata.exclusive;
+    await this.channel?.assertQueue(this.queue, options);
+    const exchange = this.metadata?.exchange;
+    if (exchange) {
+      await this.channel.assertExchange(exchange.name, exchange.type || "direct", { durable: true });
+      await this.channel.bindQueue(this.queue, exchange.name, exchange.routingKey || "default");
+    }
+    this.start();
+  }
+
+  // Start consumer
   private start() {
     this.channel?.consume(this.queue, async (message: any) => {
       if (this.shutdown) {
