@@ -5,7 +5,7 @@ const SERVICE_NAME = process.env.SERVICE_NAME || 'backend-template';
 
 function buildDevLogger(logLevel?: string) {
     const localLogFormat = printf(({ level, message, timestamp, stack }: any) => {
-        return `${timestamp} ${level} ${stack || message}`;
+        return `${timestamp} ${level} ${message || ""} ${stack || ""}`;
     })
 
     return createLogger({
