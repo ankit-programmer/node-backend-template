@@ -6,16 +6,18 @@ import logger from "../../logger";
 import { v4 as uuidv4 } from 'uuid';
 import { nanoid } from 'nanoid';
 import { delay } from '../../utility';
+import hash from 'object-hash';
 
 interface Options {
     timeout?: number; // in seconds; default 30 seconds
     concurrency?: number; // number of concurrent responses to handle; default 20
 }
-export class Service extends EventEmitter {
+
+class Service extends EventEmitter {
     private id: string;
     private name: string;
-    private consumer: Consumer;
     private isExchangeAvailable: boolean = false;
+    private consumer?: Consumer;
     private options: Options = {
         timeout: 30,
         concurrency: 20
@@ -25,6 +27,10 @@ export class Service extends EventEmitter {
         this.options = { ...this.options, ...options };
         this.id = `${name}-rpc-client-${nanoid(5)}`;
         this.name = name;
+        this.init();
+    }
+
+    private async init() {
         // Setup a temprory queue to listen for responses
         this.consumer = new Consumer({
             batch: this.options.concurrency!,
@@ -34,10 +40,6 @@ export class Service extends EventEmitter {
                 exclusive: true
             }
         });
-        this.init();
-    }
-
-    private async init() {
         // Wait for exchange
         let retryConter = 1;
         while (!this.isExchangeAvailable) {
@@ -46,6 +48,7 @@ export class Service extends EventEmitter {
                 logger.info(`Exchange (${this.name}) is available.`);
                 continue;
             };
+            logger.info(`Waiting for the exchange(${this.name}) to be ready/created.`)
             await delay(retryConter * 10000);
             retryConter++;
         }
@@ -74,8 +77,8 @@ export class Service extends EventEmitter {
      * @returns the object returned by consumer
      */
     public call(payload: any, routingKey: string = "default"): Promise<any> {
-        return new Promise((resolve, reject) => {
-            if (!this.isExchangeAvailable) throw new Error(`Exchange (${this.name}) is not available, please create it and bind queues to it.`)
+        return new Promise(async (resolve, reject) => {
+            if (!this.consumer) this.init(); // Initialize the service
             const correlationId = uuidv4();
             const responseListener = (response: any) => {
                 clearTimeout(timeout);
@@ -86,6 +89,9 @@ export class Service extends EventEmitter {
                 this.removeListener(correlationId, responseListener);
                 reject(new Error('Request timed out'));
             }, 1000 * this.options.timeout!);
+            while (!this.isExchangeAvailable) {
+                await delay(1000);
+            }
             producer.publish(this.name, payload, { replyTo: this.id, correlationId, routingKey }).catch(error => {
                 clearTimeout(timeout);
                 this.removeListener(correlationId, responseListener);
@@ -100,10 +106,25 @@ export class Service extends EventEmitter {
      * @returns true if published successfully and false if an error occurred
      */
     public async publish(payload: any, routingKey: string = "default"): Promise<boolean> {
-        if (!this.isExchangeAvailable) throw new Error(`Exchange (${this.name}) is not available, please create it and bind queues to it.`)
+        if (!this.consumer) this.init();
+        while (!this.isExchangeAvailable) {
+            await delay(1000);
+        }
         return await producer.publish(this.name, payload, { routingKey }).then(() => true).catch((error) => {
             logger.error(error);
             return false
         });
     }
 }
+const instance = new Map<string, Service>();
+const RPC = (name: string, options: Options): Service => {
+    const signature = hash({ name, options }, { algorithm: 'sha256' });
+    if (!instance.has(signature)) instance.set(signature, new Service(name, options));
+    return instance.get(signature) as Service;
+}
+
+export {
+    RPC as Service
+}
+
+
