@@ -65,7 +65,9 @@ class RabbitConnection extends EventEmitter {
         });
 
         this.connection.on("error", (error) => {
+            logger.error("[Rabbit] Error in Rabbit connection", error);
             this.emit('error', error);
+            this.connection?.close();
         })
     }
 
@@ -75,6 +77,10 @@ class RabbitConnection extends EventEmitter {
             logger.info('[RABBIT](closeConnection) Closing connection...');
             this.connection.close();
         }
+    }
+
+    public getConnection(): Connection | undefined {
+        return this.connection;
     }
 }
 
