@@ -7,10 +7,9 @@ export type Connection = amqp.Connection;
 export type Channel = amqp.Channel;
 
 const RABBIT_CONNECTION_STRING = env.QUEUE_CONNECTION_URL;
-const RETRY_INTERVAL = 5000; // in millis
 if (!RABBIT_CONNECTION_STRING) throw new Error("RABBIT_CONNECTION_STRING is not defined in environment variables");
 
-class RabbitConnection extends EventEmitter {
+export class RabbitConnection extends EventEmitter {
     private static instance: RabbitConnection;
     private gracefulClose: boolean = false;
     private connectionString: string;
@@ -32,42 +31,41 @@ class RabbitConnection extends EventEmitter {
     }
 
     private async setupConnection(): Promise<Connection> {
-        try {
-            this.gracefulClose = false;
-            this.connection = await amqp.connect(this.connectionString);
-            this.initEventListeners();
-            return this.connection;
-        } catch (err) {
-            logger.error('[RABBIT](setupConnection)', err)
-            this.emit("retry");
-            await delay(RETRY_INTERVAL);
-            return this.setupConnection();
+        let retry = 0;
+        while (!this.connection && !this.gracefulClose) {
+            this.connection = await amqp.connect(this.connectionString).catch((error) => undefined);
+            retry = Math.min(++retry, 30);
+            await delay(1000 * retry);
+            logger.info("Waiting for Rabbit Connection");
         }
+        this.initEventListeners();
+        return this.connection!;
     }
 
     private initEventListeners() {
         if (!this.connection) return;
         logger.info(`[RABBIT](onConnectionReady) Connection established to ${this.connectionString}`);
         this.emit("connect", this.connection);
-
         this.connection.on("close", (error) => {
+            this.connection?.removeAllListeners();
             this.connection = undefined;
-
             if (this.gracefulClose) {
                 logger.info('[RABBIT](onConnectionClosed) Gracefully');
                 this.emit("gracefulClose");
             } else {
                 logger.error('[RABBIT](onConnectionClosed) Abruptly', error);
-                this.emit("error", error);
+                // this.emit("error", error);
             }
 
             if (!this.gracefulClose) this.setupConnection();
         });
 
         this.connection.on("error", (error) => {
-            logger.error("[Rabbit] Error in Rabbit connection", error);
-            this.emit('error', error);
+            logger.error("[Rabbit] Error in Rabbit Connection : ", error);
+            this.connection?.removeAllListeners();
             this.connection?.close();
+            this.connection = undefined;
+            this.setupConnection();
         })
     }
 

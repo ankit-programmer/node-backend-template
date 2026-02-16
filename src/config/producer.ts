@@ -1,43 +1,53 @@
-import rabbitmqService, { Connection, Channel } from './rabbitmq';
+import rabbitmqService, { Connection, Channel, RabbitConnection } from './rabbitmq';
 import logger from "../logger";
 import { Metadata } from '../consumer';
+import { delay } from '../utility';
 
-let rabbitConnection: Connection;
-let rabbitChannel: Channel;
+
 interface ExchangeOptions { replyTo?: string, correlationId?: string, routingKey?: string };
 class RabbitMqProducer {
-    private static instance: RabbitMqProducer;
-
-    constructor() {
-        logger.info(`[PRODUCER] Listening for connection...`);
-        // console.log(rabbitmqService());
-        rabbitmqService().on("connect", async (connection) => {
-            logger.info(`[PRODUCER] Connection received...`);
-            rabbitConnection = connection;
-            logger.info(`[PRODUCER] Creating channel...`);
-            rabbitChannel = await rabbitConnection.createChannel();
-        }).on("error", (error) => {
-        })
+    private rabbitConnection?: Connection;
+    private rabbitService: RabbitConnection;
+    private rabbitChannel?: Channel;
+    private initializing: boolean = false;
+    constructor(connectionString?: string) {
+        this.rabbitService = rabbitmqService(connectionString);
+        this.rabbitService.on("connect", () => this.init());
+        this.rabbitService.on("error", () => this.init());
+        this.init();
     }
 
-    public static getSingletonInstance(): RabbitMqProducer {
-        return RabbitMqProducer.instance ||= new RabbitMqProducer();
-    }
-    public async isExchangeAvailable(name: string): Promise<boolean> {
-        try {
-            const exists = await rabbitChannel.checkExchange(name);
-            return true;
-        } catch (error) {
-            return false;
+    private async init() {
+        if (this.initializing) return;
+        this.initializing = true;
+        this.rabbitChannel?.removeAllListeners()
+        this.rabbitChannel = undefined;
+        this.rabbitConnection = undefined;
+        let retry = 0;
+        while (!this.rabbitConnection || !this.rabbitChannel) {
+            this.rabbitConnection = this.rabbitService.getConnection();
+            this.rabbitChannel = await this.rabbitConnection?.createChannel().catch(() => undefined);
+            retry = Math.min(++retry, 30);
+            logger.info("[RabbitMqProducer] Waiting for channel");
+            await delay(1000 * retry);
         }
-        return false;
+        this?.rabbitChannel.on("error", () => this.init());
+        this?.rabbitChannel.on("close", () => this.init());
+
+        this.initializing = false;
+    }
+
+    public async isExchangeAvailable(name: string): Promise<boolean> {
+        if (!this.rabbitChannel) return false;
+        const exists = await this.rabbitChannel?.checkExchange(name).then(() => true).catch(error => false);
+        return exists;
     }
     public async publish(exchange: string, content: any, options: ExchangeOptions) {
         try {
             if (!options.routingKey) options.routingKey = "default";
             content = (typeof content === 'string') ? content : JSON.stringify(content);
             const payloadBuffer: Buffer = Buffer.from(content);
-            rabbitChannel.publish(exchange, options.routingKey, payloadBuffer, options);
+            this.rabbitChannel?.publish(exchange, options.routingKey, payloadBuffer, options);
         } catch (error: any) {
             console.error('[RabbitMqProducer] publish', error);
             throw error;
@@ -49,8 +59,8 @@ class RabbitMqProducer {
             const payloadBuffer: Buffer = Buffer.from(payload);
             const options: any = { durable: true };
             if (metadata && metadata.exclusive) options.exclusive = metadata.exclusive;
-            if (!metadata?.skipAssert) await rabbitChannel.assertQueue(queueName, options);
-            rabbitChannel.sendToQueue(queueName, payloadBuffer, { correlationId: metadata?.correlationId, replyTo: metadata?.replyTo });
+            if (!metadata?.skipAssert) await this.rabbitChannel?.assertQueue(queueName, options);
+            this.rabbitChannel?.sendToQueue(queueName, payloadBuffer, { correlationId: metadata?.correlationId, replyTo: metadata?.replyTo });
         } catch (error: any) {
             console.error('[RabbitMqProducer] publishToQueue', error);
             throw error;
@@ -58,4 +68,10 @@ class RabbitMqProducer {
     }
 }
 
-export default RabbitMqProducer.getSingletonInstance();
+const instance = new Map<string, RabbitMqProducer>;
+export const Producer = (connectionString?: string) => {
+    if (!instance.has(connectionString || "default")) instance.set(connectionString || "default", new RabbitMqProducer(connectionString));
+    return instance.get(connectionString || "default") as RabbitMqProducer;
+}
+
+export default Producer();

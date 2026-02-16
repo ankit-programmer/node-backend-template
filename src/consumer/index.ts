@@ -43,48 +43,51 @@ export class Consumer {
   private rabbitService;
   private shutdown = false;
   private metadata?: Metadata;
+  private initializing: boolean = false;
   constructor(obj: IConsumer, connectionString?: string) {
     this.queue = obj.queue;
     this.processor = obj.processor;
     this.bufferSize = obj.batch;
     this.clean = obj.clean;
-    this.rabbitService = rabbitmq(connectionString);
     this.metadata = obj.metadata;
     // Setup the consumer
-    this.rabbitService.on("connect", async (connection: Connection) => {
-      this.connection = connection;
-      this.shutdown = false;
-      this.init();
-    });
-    // Stop the consumer if an error occurs
-    this.rabbitService.on('error', (error: any) => {
-      logger.error(error);
-      this.stop();
-    });
-    this.init()
+    this.rabbitService = rabbitmq(connectionString);
+    this.rabbitService.on("connect", () => this.init());
+    this.rabbitService.on("error", () => this.init());
+    this.init();
   }
   // Initialize the consumer
   private async init() {
-    this.connection = this.rabbitService.getConnection();
-    if (!this.connection) {
-      logger.error("Connection not found");
-      return;
+    if (this.initializing) return;
+    this.initializing = true;
+    this.channel?.removeAllListeners()
+    this.channel = undefined;
+    this.connection = undefined;
+    let retry = 0;
+    while (!this.connection || !this.channel) {
+      this.connection = this.rabbitService.getConnection();
+      this.channel = await this.connection?.createChannel().catch(() => undefined);
+      retry = Math.min(++retry, 30);
+      logger.info("[Consumer] Waiting for channel")
+      await delay(1000 * retry);
     }
-    this.channel = await this.connection?.createChannel();
+    this?.channel.on("error", () => this.init());
+    this?.channel.on("close", () => this.init());
+    this.start();
+    this.initializing = false;
+  }
+
+  // Start consumer
+  private async start() {
     this.channel?.prefetch(this.bufferSize);
     const options: any = { durable: true };
     if (this.metadata && this.metadata.exclusive) options.exclusive = this.metadata.exclusive;
     await this.channel?.assertQueue(this.queue, options);
     const exchange = this.metadata?.exchange;
     if (exchange) {
-      await this.channel.assertExchange(exchange.name, exchange.type || "direct", { durable: true });
-      await this.channel.bindQueue(this.queue, exchange.name, exchange.routingKey || "default");
+      await this.channel?.assertExchange(exchange.name, exchange.type || "direct", { durable: true });
+      await this.channel?.bindQueue(this.queue, exchange.name, exchange.routingKey || "default");
     }
-    this.start();
-  }
-
-  // Start consumer
-  private start() {
     this.channel?.consume(this.queue, async (message: any) => {
       if (this.shutdown) {
         console.log("This consumer is shutting down, no longer processing messages");
@@ -97,11 +100,6 @@ export class Consumer {
         throw error;
       }
     }, { noAck: false });
-    // Stop the consumer if an error occurs
-    this.channel?.on('error', (error: any) => {
-      this.stop();
-      logger.error(error);
-    });
   }
   public stop() {
     this.shutdown = true;
