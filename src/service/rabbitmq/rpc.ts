@@ -27,7 +27,6 @@ class Service extends EventEmitter {
         this.options = { ...this.options, ...options };
         this.id = `${name}-rpc-client-${nanoid(5)}`;
         this.name = name;
-        this.init();
     }
 
     private async init() {
@@ -41,7 +40,7 @@ class Service extends EventEmitter {
             }
         });
         // Wait for exchange
-        let retryConter = 1;
+        let retry = 0;
         while (!this.isExchangeAvailable) {
             this.isExchangeAvailable = await producer.isExchangeAvailable(this.name);
             if (this.isExchangeAvailable) {
@@ -49,8 +48,8 @@ class Service extends EventEmitter {
                 continue;
             };
             logger.info(`Waiting for the exchange(${this.name}) to be ready/created.`)
-            await delay(retryConter * 10000);
-            retryConter++;
+            retry = Math.min(++retry, 30);
+            await delay(1000 * retry);
         }
     }
     private responseHandler(msg: any, channel: Channel) {
@@ -90,7 +89,7 @@ class Service extends EventEmitter {
                 reject(new Error('Request timed out'));
             }, 1000 * this.options.timeout!);
             while (!this.isExchangeAvailable) {
-                await delay(1000);
+                await delay(5000);
             }
             producer.publish(this.name, payload, { replyTo: this.id, correlationId, routingKey }).catch(error => {
                 clearTimeout(timeout);
