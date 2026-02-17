@@ -32,6 +32,10 @@ export interface Metadata {
   replyTo?: string;
   exclusive?: boolean;
   skipAssert?: boolean;
+  messageTtl?: number;
+  deadLeterExchange?: string;
+  deadLetterRoutingKey?: string;
+  timestamp?: number; // Timestamp in second i.e Math.floor(Date.now()/1000)
 }
 export class Consumer {
   private connection?: Connection;

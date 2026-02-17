@@ -30,6 +30,7 @@ class Service extends EventEmitter {
     }
 
     private async init() {
+        if (this.consumer) return;
         // Setup a temprory queue to listen for responses
         this.consumer = new Consumer({
             batch: this.options.concurrency!,

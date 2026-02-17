@@ -22,10 +22,6 @@ export class RabbitConnection extends EventEmitter {
         this.setupConnection();
     }
 
-    public static getSingletonInstance(connectionString: string): RabbitConnection {
-        return RabbitConnection.instance ||= new RabbitConnection(connectionString);
-    }
-
     public status() {
         return !!this.connection;
     }
@@ -82,6 +78,11 @@ export class RabbitConnection extends EventEmitter {
     }
 }
 
-export default (connectionString: string = RABBIT_CONNECTION_STRING): RabbitConnection => {
-    return RabbitConnection.getSingletonInstance(connectionString);
+
+
+
+const instance = new Map<string, RabbitConnection>;
+export default (connectionString: string = RABBIT_CONNECTION_STRING) => {
+    if (!instance.has(connectionString)) instance.set(connectionString, new RabbitConnection(connectionString));
+    return instance.get(connectionString) as RabbitConnection;
 }

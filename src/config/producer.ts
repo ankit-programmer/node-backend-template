@@ -4,7 +4,7 @@ import { Metadata } from '../consumer';
 import { delay } from '../utility';
 
 
-interface ExchangeOptions { replyTo?: string, correlationId?: string, routingKey?: string };
+interface ExchangeOptions { replyTo?: string, correlationId?: string, routingKey?: string, timestamp?: number };
 class RabbitMqProducer {
     private rabbitConnection?: Connection;
     private rabbitService: RabbitConnection;
@@ -58,9 +58,12 @@ class RabbitMqProducer {
             payload = (typeof payload === 'string') ? payload : JSON.stringify(payload);
             const payloadBuffer: Buffer = Buffer.from(payload);
             const options: any = { durable: true };
-            if (metadata && metadata.exclusive) options.exclusive = metadata.exclusive;
+            if (metadata?.exclusive) options.exclusive = metadata.exclusive;
+            if (metadata?.messageTtl) options.messageTtl = metadata.messageTtl;
+            if (metadata?.deadLeterExchange) options.deadLetterExchange = metadata.deadLeterExchange;
+            if (metadata?.deadLetterRoutingKey) options.deadLetterRoutingKey = metadata.deadLetterRoutingKey;
             if (!metadata?.skipAssert) await this.rabbitChannel?.assertQueue(queueName, options);
-            this.rabbitChannel?.sendToQueue(queueName, payloadBuffer, { correlationId: metadata?.correlationId, replyTo: metadata?.replyTo });
+            this.rabbitChannel?.sendToQueue(queueName, payloadBuffer, { correlationId: metadata?.correlationId, replyTo: metadata?.replyTo, timestamp: metadata?.timestamp });
         } catch (error: any) {
             console.error('[RabbitMqProducer] publishToQueue', error);
             throw error;
