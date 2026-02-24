@@ -1,27 +1,54 @@
 const args = require('args-parser')(process.argv);
-import { Connection, Channel } from "amqplib";
+import { Connection, Channel, ConsumeMessage } from "amqplib";
 import logger from "../logger";
 import rabbitmq from "../config/rabbitmq";
 import { delay } from "../utility";
 import { exampleConsumer } from "./rpc-consumer";
+import EventEmitter from "events";
+import { batchConsumer } from "./batch-testing";
 const CONSUMERS: IConsumer[] = [];
 console.log(args, "args");
 switch (args?.consumer) {
   case "example":
     CONSUMERS.push(exampleConsumer);
     break;
+  case "batch":
+    CONSUMERS.push(batchConsumer);
+    break;
     break;
   default:
     break;
 }
 
-export interface IConsumer {
-  queue: string,
-  processor: Function,
-  clean?: Function,
-  batch: number,
-  metadata?: Metadata
-};
+
+// Base Interface
+interface IConsumerBase {
+  queue: string;
+  clean?: () => void;
+  batch: number;
+  metadata?: Metadata;
+}
+
+// Aggregate is enabled -> processor takes an array
+interface IConsumerAggregated extends IConsumerBase {
+  aggregate: {
+    enabled: true;
+    timeout?: number
+  };
+  processor: (messages: ConsumeMessage[], channel: Channel) => any;
+}
+
+// Aggregate is false or omitted -> processor takes a single message
+interface IConsumerSingle extends IConsumerBase {
+  aggregate?: {
+    enabled?: false;
+    timeout?: number
+  };
+  processor: (message: ConsumeMessage, channel: Channel) => any;
+}
+
+// Final consumer interface
+export type IConsumer = IConsumerAggregated | IConsumerSingle;
 export interface Metadata {
   exchange?: {
     name: string,
@@ -37,23 +64,65 @@ export interface Metadata {
   deadLetterRoutingKey?: string;
   timestamp?: number; // Timestamp in second i.e Math.floor(Date.now()/1000)
 }
+class Batch extends EventEmitter {
+  private size: number;
+  private timeout: number | undefined;
+  private queue: Array<any>;
+  private timeoutRef?: NodeJS.Timeout = undefined;
+  constructor(size: number, timeoutInSec?: number) {
+    super();
+    this.size = size;
+    this.timeout = timeoutInSec;
+    this.queue = new Array();
+  }
+
+  public push(message: any) {
+    this.queue.push(message);
+    if (this.queue.length >= this.size) {
+      // Cancel existing timer
+      this.timeoutRef && clearTimeout(this.timeoutRef);
+      // Trigger event
+      this.emit("process", this.queue.splice(0, this.size));
+    }
+    if (!this.timeout) return;
+    if (this.queue.length == 1) {
+      // Cancel existing timer
+      this.timeoutRef && clearTimeout(this.timeoutRef);
+      // Start timer
+      this.timeoutRef = setTimeout(() => {
+        const batch = this.queue.splice(0, this.size);
+        if (batch.length) this.emit("process", batch);
+      }, this.timeout * 1000);
+    }
+  }
+  public clear() {
+    this.queue = new Array();
+    this.timeoutRef && clearTimeout(this.timeoutRef);
+  }
+}
 export class Consumer {
   private connection?: Connection;
   private channel?: Channel;
   private queue: string;
-  private processor: Function;
+  private processor: IConsumer['processor'];
   private clean?: Function;
   private bufferSize: number = 1;
   private rabbitService;
+  private aggregate: boolean = false;
   private shutdown = false;
   private metadata?: Metadata;
   private initializing: boolean = false;
+  private batch: Batch;
   constructor(obj: IConsumer, connectionString?: string) {
     this.queue = obj.queue;
     this.processor = obj.processor;
     this.bufferSize = obj.batch;
     this.clean = obj.clean;
     this.metadata = obj.metadata;
+    // Setup aggregation
+    this.aggregate = obj.aggregate?.enabled || false;
+    const batchSize = this.aggregate ? this.bufferSize : 1; // Only batch if aggregation is enabled
+    this.batch = new Batch(batchSize, obj.aggregate?.timeout);
     // Setup the consumer
     this.rabbitService = rabbitmq(connectionString);
     this.rabbitService.on("connect", () => this.init());
@@ -77,12 +146,15 @@ export class Consumer {
     }
     this?.channel.on("error", () => this.init());
     this?.channel.on("close", () => this.init());
+    this.batch.removeAllListeners();
+    this.batch.clear();
     this.start();
     this.initializing = false;
   }
 
   // Start consumer
   private async start() {
+    // Setup consumer settings
     this.channel?.prefetch(this.bufferSize);
     const options: any = { durable: true };
     if (this.metadata && this.metadata.exclusive) options.exclusive = this.metadata.exclusive;
@@ -92,18 +164,21 @@ export class Consumer {
       await this.channel?.assertExchange(exchange.name, exchange.type || "direct", { durable: true });
       await this.channel?.bindQueue(this.queue, exchange.name, exchange.routingKey || "default");
     }
-    this.channel?.consume(this.queue, async (message: any) => {
+
+    // Start consuming messages
+    this.channel?.consume(this.queue, async (message: ConsumeMessage | null) => this.batch.push(message), { noAck: false });
+    this.batch.on("process", async (messages: any[]) => {
       if (this.shutdown) {
         console.log("This consumer is shutting down, no longer processing messages");
         return;
       }
       try {
-        await this.processor(message, this.channel);
+        (this.aggregate) ? await this.processor(messages as any, this.channel!) : await this.processor(messages[0], this.channel!);
       } catch (error) {
         logger.error(error);
         throw error;
       }
-    }, { noAck: false });
+    })
   }
   public stop() {
     this.shutdown = true;
@@ -132,3 +207,5 @@ process.on('SIGTERM', async () => {
   consumers.forEach(consumer => consumer.stop());
   await delay(10000);
 });
+
+
