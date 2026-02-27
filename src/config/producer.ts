@@ -60,7 +60,7 @@ class RabbitMqProducer {
             const options: any = { durable: true };
             if (metadata?.exclusive) options.exclusive = metadata.exclusive;
             if (metadata?.messageTtl) options.messageTtl = metadata.messageTtl;
-            if (metadata?.deadLeterExchange) options.deadLetterExchange = metadata.deadLeterExchange;
+            if (metadata?.deadLetterExchange) options.deadLetterExchange = metadata.deadLetterExchange;
             if (metadata?.deadLetterRoutingKey) options.deadLetterRoutingKey = metadata.deadLetterRoutingKey;
             if (!metadata?.skipAssert) await this.rabbitChannel?.assertQueue(queueName, options);
             this.rabbitChannel?.sendToQueue(queueName, payloadBuffer, { correlationId: metadata?.correlationId, replyTo: metadata?.replyTo, timestamp: metadata?.timestamp });
