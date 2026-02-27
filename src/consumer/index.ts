@@ -60,7 +60,7 @@ export interface Metadata {
   exclusive?: boolean;
   skipAssert?: boolean;
   messageTtl?: number;
-  deadLeterExchange?: string;
+  deadLetterExchange?: string;
   deadLetterRoutingKey?: string;
   timestamp?: number; // Timestamp in second i.e Math.floor(Date.now()/1000)
 }
@@ -148,7 +148,7 @@ export class Consumer {
     this?.channel.on("close", () => this.init());
     this.batch.removeAllListeners();
     this.batch.clear();
-    this.start();
+    this.start().catch(error => logger.error(error));
     this.initializing = false;
   }
 
@@ -157,8 +157,11 @@ export class Consumer {
     // Setup consumer settings
     this.channel?.prefetch(this.bufferSize);
     const options: any = { durable: true };
-    if (this.metadata && this.metadata.exclusive) options.exclusive = this.metadata.exclusive;
-    await this.channel?.assertQueue(this.queue, options);
+    if (this.metadata?.exclusive) options.exclusive = this.metadata.exclusive;
+    if (this.metadata?.messageTtl) options.messageTtl = this.metadata.messageTtl;
+    if (this.metadata?.deadLetterExchange) options.deadLetterExchange = this.metadata.deadLetterExchange;
+    if (this.metadata?.deadLetterRoutingKey) options.deadLetterRoutingKey = this.metadata.deadLetterRoutingKey;
+    if (!this.metadata?.skipAssert) await this.channel?.assertQueue(this.queue, options);
     const exchange = this.metadata?.exchange;
     if (exchange) {
       await this.channel?.assertExchange(exchange.name, exchange.type || "direct", { durable: true });
