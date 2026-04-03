@@ -30,6 +30,7 @@ export class RabbitConnection extends EventEmitter {
         let retry = 0;
         while (!this.connection && !this.gracefulClose) {
             this.connection = await amqp.connect(this.connectionString).catch((error) => undefined);
+            if (this.connection) break;
             retry = Math.min(++retry, 30);
             await delay(1000 * retry);
             logger.info("Waiting for Rabbit Connection");

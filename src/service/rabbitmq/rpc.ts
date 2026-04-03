@@ -90,7 +90,7 @@ class Service extends EventEmitter {
                 reject(new Error('Request timed out'));
             }, 1000 * this.options.timeout!);
             while (!this.isExchangeAvailable) {
-                await delay(5000);
+                await delay(1000);
             }
             producer.publish(this.name, payload, { replyTo: this.id, correlationId, routingKey }).catch(error => {
                 clearTimeout(timeout);
