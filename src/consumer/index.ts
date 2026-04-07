@@ -6,6 +6,7 @@ import { delay } from "../utility";
 import { exampleConsumer } from "./rpc-consumer";
 import EventEmitter from "events";
 import { batchConsumer } from "./batch-testing";
+import { compressor, decompress } from "../config/redis";
 const CONSUMERS: IConsumer[] = [];
 console.log(args, "args");
 switch (args?.consumer) {
@@ -54,7 +55,8 @@ export interface Metadata {
     name: string,
     type?: "direct" | "topic" | "fanout",
     routingKey?: string
-  }
+  },
+  compressor?: compressor;
   correlationId?: string;
   replyTo?: string;
   exclusive?: boolean;
@@ -62,6 +64,7 @@ export interface Metadata {
   messageTtl?: number;
   deadLetterExchange?: string;
   deadLetterRoutingKey?: string;
+  persistent?: boolean;
   timestamp?: number; // Timestamp in second i.e Math.floor(Date.now()/1000)
 }
 class Batch extends EventEmitter {
@@ -103,6 +106,7 @@ class Batch extends EventEmitter {
 export class Consumer {
   private connection?: Connection;
   private channel?: Channel;
+  private tag?: string;
   private queue: string;
   private processor: IConsumer['processor'];
   private clean?: Function;
@@ -132,59 +136,75 @@ export class Consumer {
   // Initialize the consumer
   private async init() {
     if (this.initializing) return;
+    logger.info("Initializing");
     this.initializing = true;
     this.channel?.removeAllListeners()
+    await this.channel?.close().catch(error => undefined);
     this.channel = undefined;
     this.connection = undefined;
     let retry = 0;
     while (!this.connection || !this.channel) {
       this.connection = this.rabbitService.getConnection();
-      this.channel = await this.connection?.createChannel().catch(() => undefined);
+      var channel = await this.connection?.createChannel().catch((err) => {
+        logger.error("[RabbitMqProducer] Failed to create channel", { error: err.message });
+        return undefined;
+      });
+      this.channel = channel;
+      if (this.channel) break;
       retry = Math.min(++retry, 30);
       logger.info("[Consumer] Waiting for channel")
       await delay(1000 * retry);
     }
-    this?.channel.on("error", () => this.init());
-    this?.channel.on("close", () => this.init());
+    this?.channel.once("error", () => this.init());
+    this?.channel.once("close", () => this.init());
     this.batch.removeAllListeners();
     this.batch.clear();
-    this.start().catch(error => logger.error(error));
+    this.start(this.channel).catch((error) => undefined);
     this.initializing = false;
+    logger.info("Initialized");
   }
 
   // Start consumer
-  private async start() {
+  private async start(channel: Channel) {
     // Setup consumer settings
-    this.channel?.prefetch(this.bufferSize);
+    await this.channel?.prefetch(this.bufferSize);
     const options: any = { durable: true };
     if (this.metadata?.exclusive) options.exclusive = this.metadata.exclusive;
     if (this.metadata?.messageTtl) options.messageTtl = this.metadata.messageTtl;
     if (this.metadata?.deadLetterExchange) options.deadLetterExchange = this.metadata.deadLetterExchange;
     if (this.metadata?.deadLetterRoutingKey) options.deadLetterRoutingKey = this.metadata.deadLetterRoutingKey;
-    if (!this.metadata?.skipAssert) await this.channel?.assertQueue(this.queue, options);
+    if (!this.metadata?.skipAssert) await channel?.assertQueue(this.queue, options).catch(error => undefined);
     const exchange = this.metadata?.exchange;
     if (exchange) {
-      await this.channel?.assertExchange(exchange.name, exchange.type || "direct", { durable: true });
-      await this.channel?.bindQueue(this.queue, exchange.name, exchange.routingKey || "default");
+      await channel?.assertExchange(exchange.name, exchange.type || "direct", { durable: true }).catch(error => undefined);
+      await channel?.bindQueue(this.queue, exchange.name, exchange.routingKey || "default").catch(error => undefined);
     }
-
-    // Start consuming messages
-    this.channel?.consume(this.queue, async (message: ConsumeMessage | null) => this.batch.push(message), { noAck: false });
     this.batch.on("process", async (messages: any[]) => {
       if (this.shutdown) {
         console.log("This consumer is shutting down, no longer processing messages");
         return;
       }
       try {
-        (this.aggregate) ? await this.processor(messages as any, this.channel!) : await this.processor(messages[0], this.channel!);
-      } catch (error) {
+        (this.aggregate) ? await this.processor(messages as any, channel!) : await this.processor(messages[0], channel!);
+      } catch (error: any) {
         logger.error(error);
         throw error;
       }
     })
+    // Start consuming messages
+    const response = await channel?.consume(this.queue, async (message: ConsumeMessage | null) => {
+      console.log(message);
+      if (message?.properties.contentEncoding) {
+        const content = await decompress(message?.content!, message.properties.contentEncoding).catch(error => "{\"error\":\"Failed to decompress message\"}");
+        message!.content = Buffer.from(content);
+      }
+      this.batch.push(message)
+    }, { noAck: false }).catch(error => undefined);
+    this.tag = response?.consumerTag;
   }
-  public stop() {
+  public async stop() {
     this.shutdown = true;
+    await this.channel?.cancel(this.tag!).catch(error => undefined);
     this.clean?.();
   }
   public async queueStatus() {

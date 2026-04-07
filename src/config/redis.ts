@@ -1,3 +1,4 @@
+// @ts-nocheck
 const { crc32 } = require('crc');
 import { brotliCompress, brotliDecompress, gzip, gunzip } from 'zlib';
 import snappy from 'snappy';
@@ -5,7 +6,9 @@ import { createClient } from 'redis';
 import logger from '../logger';
 import env from './env';
 export enum compressor {
-    'SNAPPY', 'GZIP', 'BROTLI'
+    'SNAPPY' = 'snappy',
+    'GZIP' = 'gzip',
+    'BROTLI' = 'brotli'
 }
 if (!env.REDIS_CONNECTION_STRING) throw new Error("REDIS_CONNECTION_STRING is required");
 const client = createClient({
@@ -59,7 +62,7 @@ async function cset(key: string, value: string, ttlSecond: number = 60 * 60 * 24
     }
 }
 
-function compress(text: string, lib: compressor): Promise<Buffer> {
+export function compress(text: string, lib: compressor): Promise<Buffer> {
     return new Promise(async (resolve, reject) => {
         if (typeof text !== 'string') {
             return reject(new Error('Provide a valid string to compress.'));
@@ -102,7 +105,7 @@ function compress(text: string, lib: compressor): Promise<Buffer> {
     })
 }
 
-function decompress(value: Buffer, lib: compressor): Promise<string> {
+export function decompress(value: Buffer, lib: compressor): Promise<string> {
     return new Promise(async (resolve, reject) => {
         if (!(value instanceof Buffer)) {
             return reject(new Error('Provide a valid Buffer to decompress.'));

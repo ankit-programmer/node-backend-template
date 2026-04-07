@@ -3,9 +3,10 @@ import logger from "../logger";
 import { Metadata } from '../consumer';
 import { delay } from '../utility';
 import { ConfirmChannel } from 'amqplib';
+import { compress, compressor } from './redis';
 
 
-interface ExchangeOptions { replyTo?: string, correlationId?: string, routingKey?: string, timestamp?: number };
+interface ExchangeOptions { replyTo?: string, correlationId?: string, routingKey?: string, timestamp?: number, persistent?: boolean, compressor?: compressor };
 class RabbitMqProducer {
     private rabbitConnection?: Connection;
     private rabbitService: RabbitConnection;
@@ -54,13 +55,13 @@ class RabbitMqProducer {
             logger.debug("Publishing to Exchange");
             if (!options.routingKey) options.routingKey = "default";
             content = (typeof content === 'string') ? content : JSON.stringify(content);
-            const payloadBuffer: Buffer = Buffer.from(content);
+            const payloadBuffer: Buffer = options.compressor ? await compress(content, options.compressor) : Buffer.from(content);
             let status = false;
             let retry = 1;
             while (!status) {
                 status = await new Promise((resolve, reject) => {
                     if (!this.rabbitChannel) return resolve(false);
-                    this.rabbitChannel?.publish(exchange, options.routingKey!, payloadBuffer, options, (error, ok) => {
+                    this.rabbitChannel?.publish(exchange, options.routingKey!, payloadBuffer, { ...options, "contentEncoding": options.compressor }, (error, ok) => {
                         if (error) return resolve(false);
                         resolve(true);
                     })
@@ -80,7 +81,7 @@ class RabbitMqProducer {
         try {
             logger.debug('Publishing to Queue');
             payload = (typeof payload === 'string') ? payload : JSON.stringify(payload);
-            const payloadBuffer: Buffer = Buffer.from(payload);
+            const payloadBuffer: Buffer = metadata?.compressor ? await compress(payload, metadata.compressor) : Buffer.from(payload);
             const options: any = { durable: true };
             if (metadata?.exclusive) options.exclusive = metadata.exclusive;
             if (metadata?.messageTtl) options.messageTtl = metadata.messageTtl;
@@ -92,7 +93,14 @@ class RabbitMqProducer {
             while (!status) {
                 status = await new Promise((resolve, reject) => {
                     if (!this.rabbitChannel) return resolve(false);
-                    this.rabbitChannel?.sendToQueue(queueName, payloadBuffer, { correlationId: metadata?.correlationId, replyTo: metadata?.replyTo, timestamp: metadata?.timestamp }, (err, ok) => {
+                    const messageOptions = {
+                        correlationId: metadata?.correlationId,
+                        replyTo: metadata?.replyTo,
+                        timestamp: metadata?.timestamp,
+                        persistent: metadata?.persistent,
+                        contentEncoding: metadata?.compressor
+                    };
+                    this.rabbitChannel?.sendToQueue(queueName, payloadBuffer, messageOptions, (err, ok) => {
                         if (err) return resolve(false);
                         resolve(true);
                     });
