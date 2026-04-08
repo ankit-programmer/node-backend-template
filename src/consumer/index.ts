@@ -193,7 +193,6 @@ export class Consumer {
     })
     // Start consuming messages
     const response = await channel?.consume(this.queue, async (message: ConsumeMessage | null) => {
-      console.log(message);
       if (message?.properties.contentEncoding) {
         const content = await decompress(message?.content!, message.properties.contentEncoding).catch(error => "{\"error\":\"Failed to decompress message\"}");
         message!.content = Buffer.from(content);
