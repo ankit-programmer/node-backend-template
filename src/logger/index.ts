@@ -32,7 +32,9 @@ function buildProdLogger(logLevel: string) {
         transports: [new transports.Console()],
     });
     if (env.LOG_TO_FILE) {
-        logger.add(new transports.File({ filename: 'logs/app.log', maxsize: MAX_LOG_FILE_BYTES, maxFiles: MAX_LOG_FILES }));
+        logger.add(
+            new transports.File({ filename: 'logs/app.log', maxsize: MAX_LOG_FILE_BYTES, maxFiles: MAX_LOG_FILES }),
+        );
     }
     return logger;
 }
