@@ -1,38 +1,36 @@
 // @ts-nocheck
 const { crc32 } = require('crc');
-import { brotliCompress, brotliDecompress, gzip, gunzip } from 'zlib';
-import snappy from 'snappy';
+
 import { createClient } from 'redis';
+import snappy from 'snappy';
+import { brotliCompress, brotliDecompress, gunzip, gzip } from 'zlib';
 import logger from '../logger';
 import env from './env';
 export enum compressor {
-    'SNAPPY' = 'snappy',
-    'GZIP' = 'gzip',
-    'BROTLI' = 'brotli'
+    SNAPPY = 'snappy',
+    GZIP = 'gzip',
+    BROTLI = 'brotli',
 }
-if (!env.REDIS_CONNECTION_STRING) throw new Error("REDIS_CONNECTION_STRING is required");
+if (!env.REDIS_CONNECTION_STRING) throw new Error('REDIS_CONNECTION_STRING is required');
 const client = createClient({
     url: env.REDIS_CONNECTION_STRING,
     socket: {
-        reconnectStrategy: (retries, cause) => retries * 1000
-    }
-})
+        reconnectStrategy: (retries, cause) => retries * 1000,
+    },
+});
 try {
     client.connect();
-
 } catch (error) {
     logger.error(error);
     client.connect();
 }
-client.on("ready", () => {
-    logger.info("Connection Established to Redis!");
-})
+client.on('ready', () => {
+    logger.info('Connection Established to Redis!');
+});
 
-client.on("error", (error: any) => {
-    logger.error(error)
-})
-
-
+client.on('error', (error: any) => {
+    logger.error(error);
+});
 
 async function cget(key: string, lib: compressor = compressor.BROTLI): Promise<string | null> {
     try {
@@ -43,18 +41,21 @@ async function cget(key: string, lib: compressor = compressor.BROTLI): Promise<s
         // Compressed data received from redis.
         const value = await decompress(rawValue as any, lib);
         return value;
-
     } catch (error) {
         throw error;
     }
-
 }
 
-async function cset(key: string, value: string, ttlSecond: number = 60 * 60 * 24 * 7, lib: compressor = compressor.BROTLI): Promise<boolean> {
+async function cset(
+    key: string,
+    value: string,
+    ttlSecond: number = 60 * 60 * 24 * 7,
+    lib: compressor = compressor.BROTLI,
+): Promise<boolean> {
     try {
         const buffer = await compress(value, lib);
         const status = await client.set(key, buffer, {
-            EX: ttlSecond
+            EX: ttlSecond,
         });
         return true;
     } catch (error) {
@@ -70,9 +71,8 @@ export function compress(text: string, lib: compressor): Promise<Buffer> {
         switch (lib) {
             case compressor.SNAPPY:
                 try {
-                    let ctext = await snappy.compress(text);
+                    const ctext = await snappy.compress(text);
                     return resolve(ctext);
-
                 } catch (error) {
                     return reject(error);
                 }
@@ -93,16 +93,13 @@ export function compress(text: string, lib: compressor): Promise<Buffer> {
                     }
 
                     return reject(error);
-                })
+                });
                 break;
             default:
                 return reject(new Error('Provide a valid compressor.'));
                 break;
         }
-
-
-
-    })
+    });
 }
 
 export function decompress(value: Buffer, lib: compressor): Promise<string> {
@@ -113,7 +110,7 @@ export function decompress(value: Buffer, lib: compressor): Promise<string> {
         switch (lib) {
             case compressor.SNAPPY:
                 try {
-                    let string = await snappy.uncompress(value, { asBuffer: false });
+                    const string = await snappy.uncompress(value, { asBuffer: false });
                     return resolve(string as any);
                 } catch (error) {
                     return reject(error);
@@ -125,8 +122,7 @@ export function decompress(value: Buffer, lib: compressor): Promise<string> {
                         return resolve(string.toString());
                     }
                     return reject(error);
-
-                })
+                });
                 break;
             case compressor.GZIP:
                 gunzip(value, (error, string) => {
@@ -134,26 +130,22 @@ export function decompress(value: Buffer, lib: compressor): Promise<string> {
                         return resolve(string.toString());
                     }
                     return reject(error);
-
-                })
+                });
                 break;
             default:
                 return reject(new Error('Provide a valid compressor.'));
                 break;
         }
-    })
-
+    });
 }
 
-
-
 /**
- * 
+ *
  * @param base Base Key Name
  * @param key Key you want to shard
  * @param totalElements Expected number of records to shard or store
  * @param shardSize Number of elements you want in a single shard
- * @returns 
+ * @returns
  */
 function shardKey(base: string, key: string, totalElements: number, shardSize: number) {
     // Got help from : https://redislabs.com/ebook/part-2-core-concepts/01chapter-9-reducing-memory-use/9-2-sharded-structures/9-2-1-hashes/#:~:text=To%20shard%20a%20HASH%20table,method%20of%20partitioning%20our%20data.&text=the%20shard%20ID%20that%20the%20data%20will%20be%20stored%20in.&text=a%20new%20key%20for%20a,and%20the%20HASH%20key%20HASH%20.
@@ -162,15 +154,12 @@ function shardKey(base: string, key: string, totalElements: number, shardSize: n
     if (Number(key) && totalElements <= 0) {
         // Key is a number.
         shardId = Math.floor(parseInt(key, 10) / shardSize);
-
-
     } else {
         // Key is a string
         // let shards = Math.floor(2 * totalElements / shardSize);
-        let shards = Math.ceil(totalElements / shardSize);
+        const shards = Math.ceil(totalElements / shardSize);
 
         shardId = crc32(key.toString()) % shards;
-
     }
     return `${base}:${shardId}`;
 }
@@ -178,10 +167,10 @@ function shardKey(base: string, key: string, totalElements: number, shardSize: n
 async function doesExist(key: string): Promise<boolean> {
     try {
         const result = await client.exists([key]);
-        return (result) ? true : false;
+        return result ? true : false;
     } catch (error) {
         throw error;
     }
 }
-const result = Object.assign(client, { doesExist, shardKey, compress, decompress, cget, cset })
+const result = Object.assign(client, { doesExist, shardKey, compress, decompress, cget, cset });
 export default result;

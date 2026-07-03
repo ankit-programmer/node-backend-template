@@ -1,13 +1,13 @@
-import { Channel, ConsumeMessage } from "amqplib";
-import { IConsumer } from ".";
-import logger from "../logger";
+import type { Channel, ConsumeMessage } from 'amqplib';
+import logger from '../logger';
+import type { IConsumer } from '.';
 
 export const batchConsumer: IConsumer = {
-    queue: "batch_example",
+    queue: 'batch_example',
     batch: 10,
     aggregate: {
         enabled: true,
-        timeout: 5
+        timeout: 5,
     },
     processor: async (messages: ConsumeMessage[], channel: Channel) => {
         for (const message of messages) {
@@ -20,5 +20,5 @@ export const batchConsumer: IConsumer = {
                 channel.nack(message, false, false);
             }
         }
-    }
-}
+    },
+};

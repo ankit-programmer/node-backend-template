@@ -1,12 +1,12 @@
+import EventEmitter from 'events';
 import { MongoClient } from 'mongodb';
 import logger from '../logger';
-import EventEmitter from 'events';
 import { delay } from '../utility';
 import env from './env';
 
 const RETRY_INTERVAL = 5000; // in millis
 const MONGO_CONNECTION_STRING = env.MONGO_URI;
-if (!MONGO_CONNECTION_STRING) throw new Error("MONGO_CONNECTION_STRING is not defined in environment variables");
+if (!MONGO_CONNECTION_STRING) throw new Error('MONGO_CONNECTION_STRING is not defined in environment variables');
 class MongoService extends EventEmitter {
     private static instance: MongoService;
     private gracefulClose: boolean = false;
@@ -15,13 +15,13 @@ class MongoService extends EventEmitter {
 
     constructor(connectionString: string) {
         super();
-        if (!connectionString) throw new Error("connectionString is required");
+        if (!connectionString) throw new Error('connectionString is required');
         this.connectionString = connectionString;
         this.setupConnection();
     }
 
     public static getSingletonInstance(connectionString: string): MongoService {
-        return MongoService.instance ||= new MongoService(connectionString);
+        return (MongoService.instance ||= new MongoService(connectionString));
     }
 
     private async setupConnection(): Promise<MongoClient> {
@@ -32,8 +32,8 @@ class MongoService extends EventEmitter {
             this.initEventListeners();
             return this.connection;
         } catch (err) {
-            logger.error('[MONGO](setupConnection)', err)
-            this.emit("retry");
+            logger.error('[MONGO](setupConnection)', err);
+            this.emit('retry');
             await delay(RETRY_INTERVAL);
             return this.setupConnection();
         }
@@ -42,21 +42,21 @@ class MongoService extends EventEmitter {
     private initEventListeners() {
         if (!this.connection) return;
         logger.info(`[MONGO](onConnectionReady) Connection established to ${this.connectionString}`);
-        this.emit("connect", this.connection);
+        this.emit('connect', this.connection);
 
-        this.connection.on("serverClosed", (error: any) => {
+        this.connection.on('serverClosed', (error: any) => {
             this.connection = undefined;
 
             if (this.gracefulClose) {
                 logger.info('[MONGO](onConnectionClosed) Gracefully');
-                this.emit("gracefulClose");
+                this.emit('gracefulClose');
             } else {
                 logger.error('[MONGO](onConnectionClosed) Abruptly', error);
-                this.emit("error", error);
+                this.emit('error', error);
             }
 
             if (!this.gracefulClose) this.setupConnection();
-        })
+        });
     }
 
     public closeConnection() {
@@ -70,4 +70,4 @@ class MongoService extends EventEmitter {
 
 export default (connectionString: string = MONGO_CONNECTION_STRING): MongoService => {
     return MongoService.getSingletonInstance(connectionString);
-}
+};

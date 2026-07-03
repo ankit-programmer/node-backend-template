@@ -1,12 +1,18 @@
-import rabbitmqService, { Connection, Channel, RabbitConnection } from './rabbitmq';
-import logger from "../logger";
-import { Metadata } from '../consumer';
+import type { ConfirmChannel } from 'amqplib';
+import type { Metadata } from '../consumer';
+import logger from '../logger';
 import { delay } from '../utility';
-import { ConfirmChannel } from 'amqplib';
-import { compress, compressor } from './redis';
+import rabbitmqService, { Channel, type Connection, type RabbitConnection } from './rabbitmq';
+import { compress, type compressor } from './redis';
 
-
-interface ExchangeOptions { replyTo?: string, correlationId?: string, routingKey?: string, timestamp?: number, persistent?: boolean, compressor?: compressor };
+interface ExchangeOptions {
+    replyTo?: string;
+    correlationId?: string;
+    routingKey?: string;
+    timestamp?: number;
+    persistent?: boolean;
+    compressor?: compressor;
+}
 class RabbitMqProducer {
     private rabbitConnection?: Connection;
     private rabbitService: RabbitConnection;
@@ -14,16 +20,16 @@ class RabbitMqProducer {
     private initializing: boolean = false;
     constructor(connectionString?: string) {
         this.rabbitService = rabbitmqService(connectionString);
-        this.rabbitService.on("connect", () => this.init());
-        this.rabbitService.on("error", () => this.init());
+        this.rabbitService.on('connect', () => this.init());
+        this.rabbitService.on('error', () => this.init());
         this.init();
     }
 
     private async init() {
         if (this.initializing) return;
         this.initializing = true;
-        this.rabbitChannel?.removeAllListeners()
-        await this.rabbitChannel?.close().catch(error => undefined);
+        this.rabbitChannel?.removeAllListeners();
+        await this.rabbitChannel?.close().catch((error) => undefined);
         this.rabbitChannel = undefined;
         this.rabbitConnection = undefined;
         let retry = 0;
@@ -31,40 +37,51 @@ class RabbitMqProducer {
             await delay(30 * 1000);
             this.rabbitConnection = this.rabbitService.getConnection();
             this.rabbitChannel = await this.rabbitConnection?.createConfirmChannel().catch((err) => {
-                logger.error("[RabbitMqProducer] Failed to create channel", { error: err.message });
+                logger.error('[RabbitMqProducer] Failed to create channel', { error: err.message });
                 return undefined;
             });
             if (this.rabbitChannel) break;
             retry = Math.min(++retry, 30);
-            logger.info("[RabbitMqProducer] Waiting for channel");
+            logger.info('[RabbitMqProducer] Waiting for channel');
             await delay(1000 * retry);
         }
-        this?.rabbitChannel.once("error", () => this.init());
-        this?.rabbitChannel.once("close", () => this.init());
-        logger.info("[RabbitMqProducer] Channel created");
+        this?.rabbitChannel.once('error', () => this.init());
+        this?.rabbitChannel.once('close', () => this.init());
+        logger.info('[RabbitMqProducer] Channel created');
         this.initializing = false;
     }
 
     public async isExchangeAvailable(name: string): Promise<boolean> {
         if (!this.rabbitChannel) return false;
-        const exists = await this.rabbitChannel?.checkExchange(name).then(() => true).catch(error => false);
+        const exists = await this.rabbitChannel
+            ?.checkExchange(name)
+            .then(() => true)
+            .catch((error) => false);
         return exists;
     }
     public async publish(exchange: string, content: any, options: ExchangeOptions) {
         try {
-            logger.debug("Publishing to Exchange");
-            if (!options.routingKey) options.routingKey = "default";
-            content = (typeof content === 'string') ? content : JSON.stringify(content);
-            const payloadBuffer: Buffer = options.compressor ? await compress(content, options.compressor) : Buffer.from(content);
+            logger.debug('Publishing to Exchange');
+            if (!options.routingKey) options.routingKey = 'default';
+            content = typeof content === 'string' ? content : JSON.stringify(content);
+            const payloadBuffer: Buffer = options.compressor
+                ? await compress(content, options.compressor)
+                : Buffer.from(content);
             let status = false;
             let retry = 1;
             while (!status) {
                 status = await new Promise((resolve, reject) => {
                     if (!this.rabbitChannel) return resolve(false);
-                    this.rabbitChannel?.publish(exchange, options.routingKey!, payloadBuffer, { ...options, "contentEncoding": options.compressor }, (error, ok) => {
-                        if (error) return resolve(false);
-                        resolve(true);
-                    })
+                    this.rabbitChannel?.publish(
+                        exchange,
+                        options.routingKey!,
+                        payloadBuffer,
+                        { ...options, contentEncoding: options.compressor },
+                        (error, ok) => {
+                            if (error) return resolve(false);
+                            resolve(true);
+                        },
+                    );
                 });
                 const waitingTimeInSec = Math.max(10, retry++ * 2);
                 if (status || retry > 5) break;
@@ -80,8 +97,10 @@ class RabbitMqProducer {
     public async publishToQueue(queueName: string, payload: any, metadata?: Metadata) {
         try {
             logger.debug('Publishing to Queue');
-            payload = (typeof payload === 'string') ? payload : JSON.stringify(payload);
-            const payloadBuffer: Buffer = metadata?.compressor ? await compress(payload, metadata.compressor) : Buffer.from(payload);
+            payload = typeof payload === 'string' ? payload : JSON.stringify(payload);
+            const payloadBuffer: Buffer = metadata?.compressor
+                ? await compress(payload, metadata.compressor)
+                : Buffer.from(payload);
             const options: any = { durable: true };
             if (metadata?.exclusive) options.exclusive = metadata.exclusive;
             if (metadata?.messageTtl) options.messageTtl = metadata.messageTtl;
@@ -98,7 +117,7 @@ class RabbitMqProducer {
                         replyTo: metadata?.replyTo,
                         timestamp: metadata?.timestamp,
                         persistent: metadata?.persistent,
-                        contentEncoding: metadata?.compressor
+                        contentEncoding: metadata?.compressor,
                     };
                     this.rabbitChannel?.sendToQueue(queueName, payloadBuffer, messageOptions, (err, ok) => {
                         if (err) return resolve(false);
@@ -118,10 +137,11 @@ class RabbitMqProducer {
     }
 }
 
-const instance = new Map<string, RabbitMqProducer>;
+const instance = new Map<string, RabbitMqProducer>();
 export const Producer = (connectionString?: string) => {
-    if (!instance.has(connectionString || "default")) instance.set(connectionString || "default", new RabbitMqProducer(connectionString));
-    return instance.get(connectionString || "default") as RabbitMqProducer;
-}
+    if (!instance.has(connectionString || 'default'))
+        instance.set(connectionString || 'default', new RabbitMqProducer(connectionString));
+    return instance.get(connectionString || 'default') as RabbitMqProducer;
+};
 
 export default Producer();

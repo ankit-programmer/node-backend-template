@@ -1,20 +1,22 @@
-import express, { Request, Response } from 'express';
-import cors from 'cors';
 import bodyParser from 'body-parser';
+import cors from 'cors';
+import express, { type Request, type Response } from 'express';
+import env from './config/env';
 import { AuthMethod, auth } from './middleware/auth';
 import errorHandler from './middleware/error-handler';
-import env from './config/env';
 import exampleRouter from './route/example/index';
 import { Service } from './service/rabbitmq/rpc';
 import { APIResponseBuilder } from './utility';
 
 const app = express();
 const port = env.PORT || 3000;
-app.use(cors({
-    origin: "*",
-    maxAge: 86400,
-    preflightContinue: true,
-}));
+app.use(
+    cors({
+        origin: '*',
+        maxAge: 86400,
+        preflightContinue: true,
+    }),
+);
 app.use(bodyParser.json({ limit: '8mb' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -26,7 +28,7 @@ const exampleService = Service('example_service');
 app.get('/rpc', async (req: Request, res: Response) => {
     const response = await exampleService.call({ id: req.params.id });
     res.json(new APIResponseBuilder().setSuccess(response).build());
-})
+});
 
 app.use(errorHandler as any);
 // Start the server

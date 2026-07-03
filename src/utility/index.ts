@@ -2,7 +2,7 @@ export function delay(time = 1000) {
     return new Promise((resolve) => {
         setTimeout(() => {
             return resolve(true);
-        }, time)
+        }, time);
     });
 }
 
@@ -38,7 +38,6 @@ export class APIResponseBuilder {
         }
         this.isSuccess = true;
         return this;
-
     }
     setError(message: string, code: number = 400) {
         if (typeof message !== 'string') {
@@ -51,12 +50,11 @@ export class APIResponseBuilder {
         return this;
     }
     build() {
-
         return {
             status: this.status,
             message: this.message,
             data: this.data,
-            success: this.isSuccess
+            success: this.isSuccess,
         };
     }
 }

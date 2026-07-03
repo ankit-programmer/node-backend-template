@@ -1,21 +1,26 @@
-import { format, createLogger, transports } from 'winston';
 import { DateTime } from 'luxon';
+import { createLogger, format, transports } from 'winston';
+
 const { timestamp, combine, printf, colorize } = format;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'backend-template';
 
 function buildDevLogger(logLevel?: string) {
     const localLogFormat = printf(({ level, message, timestamp, stack }: any) => {
-        return `${timestamp} ${level} ${message || ""} ${stack || ""}`;
-    })
+        return `${timestamp} ${level} ${message || ''} ${stack || ''}`;
+    });
 
     return createLogger({
         level: logLevel,
-        format: combine(colorize(), timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), format.errors({ stack: true }), localLogFormat),
+        format: combine(
+            colorize(),
+            timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+            format.errors({ stack: true }),
+            localLogFormat,
+        ),
         defaultMeta: SERVICE_NAME,
-        transports: [new transports.Console()]
+        transports: [new transports.Console()],
     });
 }
-
 
 function buildProdLogger(logLevel?: string) {
     return createLogger({
@@ -24,8 +29,8 @@ function buildProdLogger(logLevel?: string) {
         defaultMeta: { service: SERVICE_NAME },
         transports: [
             new transports.Console(),
-            new transports.File({ filename: `logs/log_${DateTime.now().toFormat('dd_MMM_yyyy')}.log` })
-        ]
+            new transports.File({ filename: `logs/log_${DateTime.now().toFormat('dd_MMM_yyyy')}.log` }),
+        ],
     });
 }
 function logger() {

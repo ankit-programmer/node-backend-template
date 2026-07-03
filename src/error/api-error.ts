@@ -1,5 +1,4 @@
 export class ApiError {
-
     message: string;
     code: number;
     type?: Errors;
@@ -8,11 +7,10 @@ export class ApiError {
         this.message = message;
         this.type = type;
     }
-
 }
 
 export enum Errors {
-    Authorization = "Authorization",
-    Authentication = "Authentication",
-    InvalidRequest = "Invalid Request"
+    Authorization = 'Authorization',
+    Authentication = 'Authentication',
+    InvalidRequest = 'Invalid Request',
 }

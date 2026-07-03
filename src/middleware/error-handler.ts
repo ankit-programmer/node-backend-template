@@ -1,9 +1,8 @@
-import { NextFunction, Request, Response } from "express";
-import { ZodError } from "zod";
-import { ApiError } from "../error/api-error";
-import logger from "../logger";
-import { APIResponseBuilder } from "../utility";
-
+import type { NextFunction, Request, Response } from 'express';
+import { ZodError } from 'zod';
+import { ApiError } from '../error/api-error';
+import logger from '../logger';
+import { APIResponseBuilder } from '../utility';
 
 export default function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
     const responseBuilder = new APIResponseBuilder();
@@ -13,9 +12,9 @@ export default function errorHandler(err: Error, req: Request, res: Response, ne
     }
     if (err instanceof ZodError) {
         const message: any = {};
-        (err.issues)?.forEach((e) => {
+        err.issues?.forEach((e) => {
             message.field = e?.path[0];
-            message.message = e?.message
+            message.message = e?.message;
         });
         responseBuilder.setError(JSON.stringify(message), 400);
         return res.status(400).json(responseBuilder.build());

@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+
 dotenv.config();
 
 const env = {
@@ -12,6 +13,6 @@ const env = {
     SERVICE_NAME: process.env.SERVICE_NAME,
     LOG_LEVEL: process.env.LOG_LEVEL,
     JWT_SECRET: process.env.JWT_SECRET,
-}
+};
 
 export default env;

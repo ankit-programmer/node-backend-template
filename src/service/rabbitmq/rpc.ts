@@ -1,12 +1,12 @@
 import EventEmitter from 'events';
-import producer from '../../config/producer';
-import rabbitmqService, { Connection, Channel } from '../../config/rabbitmq';
-import { Consumer } from '../../consumer';
-import logger from "../../logger";
-import { v4 as uuidv4 } from 'uuid';
 import { nanoid } from 'nanoid';
-import { delay } from '../../utility';
 import hash from 'object-hash';
+import { v4 as uuidv4 } from 'uuid';
+import producer from '../../config/producer';
+import rabbitmqService, { type Channel, Connection } from '../../config/rabbitmq';
+import { Consumer } from '../../consumer';
+import logger from '../../logger';
+import { delay } from '../../utility';
 
 interface Options {
     timeout?: number; // in seconds; default 30 seconds
@@ -20,7 +20,7 @@ class Service extends EventEmitter {
     private consumer?: Consumer;
     private options: Options = {
         timeout: 30,
-        concurrency: 20
+        concurrency: 20,
     };
     constructor(name: string, options?: Options) {
         super();
@@ -37,8 +37,8 @@ class Service extends EventEmitter {
             queue: this.id,
             processor: this.responseHandler.bind(this),
             metadata: {
-                exclusive: true
-            }
+                exclusive: true,
+            },
         });
         // Wait for exchange
         let retry = 0;
@@ -47,8 +47,8 @@ class Service extends EventEmitter {
             if (this.isExchangeAvailable) {
                 logger.info(`Exchange (${this.name}) is available.`);
                 continue;
-            };
-            logger.info(`Waiting for the exchange(${this.name}) to be ready/created.`)
+            }
+            logger.info(`Waiting for the exchange(${this.name}) to be ready/created.`);
             retry = Math.min(++retry, 30);
             await delay(1000 * retry);
         }
@@ -72,11 +72,11 @@ class Service extends EventEmitter {
     }
     /**
      * Use this method if your consumer is configured to return response
-     * @param payload 
-     * @param routingKey 
+     * @param payload
+     * @param routingKey
      * @returns the object returned by consumer
      */
-    public call(payload: any, routingKey: string = "default"): Promise<any> {
+    public call(payload: any, routingKey: string = 'default'): Promise<any> {
         return new Promise(async (resolve, reject) => {
             if (!this.consumer) this.init(); // Initialize the service
             const correlationId = uuidv4();
@@ -92,7 +92,7 @@ class Service extends EventEmitter {
             while (!this.isExchangeAvailable) {
                 await delay(1000);
             }
-            producer.publish(this.name, payload, { replyTo: this.id, correlationId, routingKey }).catch(error => {
+            producer.publish(this.name, payload, { replyTo: this.id, correlationId, routingKey }).catch((error) => {
                 clearTimeout(timeout);
                 this.removeListener(correlationId, responseListener);
                 reject(new Error('Failed to send request: ' + error.message));
@@ -101,19 +101,22 @@ class Service extends EventEmitter {
     }
     /**
      * Use this method if you don't want to wait for response or consumer don't return response
-     * @param payload 
-     * @param routingKey 
+     * @param payload
+     * @param routingKey
      * @returns true if published successfully and false if an error occurred
      */
-    public async publish(payload: any, routingKey: string = "default"): Promise<boolean> {
+    public async publish(payload: any, routingKey: string = 'default'): Promise<boolean> {
         if (!this.consumer) this.init();
         while (!this.isExchangeAvailable) {
             await delay(1000);
         }
-        return await producer.publish(this.name, payload, { routingKey }).then(() => true).catch((error) => {
-            logger.error(error);
-            return false
-        });
+        return await producer
+            .publish(this.name, payload, { routingKey })
+            .then(() => true)
+            .catch((error) => {
+                logger.error(error);
+                return false;
+            });
     }
 }
 const instance = new Map<string, Service>();
@@ -121,10 +124,6 @@ const RPC = (name: string, options?: Options): Service => {
     const signature = hash({ name, options: options ?? {} }, { algorithm: 'sha256' });
     if (!instance.has(signature)) instance.set(signature, new Service(name, options));
     return instance.get(signature) as Service;
-}
+};
 
-export {
-    RPC as Service
-}
-
-
+export { RPC as Service };

@@ -1,17 +1,17 @@
-import { Channel } from "amqplib";
-import producer from "../config/producer";
-import { IConsumer } from ".";
-import { delay } from "../utility";
+import type { Channel } from 'amqplib';
+import producer from '../config/producer';
+import { delay } from '../utility';
+import type { IConsumer } from '.';
 
 let counter = 0;
 export const exampleConsumer: IConsumer = {
-    queue: "example_service",
+    queue: 'example_service',
     batch: 1,
     metadata: {
         exchange: {
-            name: "example_service"
+            name: 'example_service',
         },
-        messageTtl: 1000*10
+        messageTtl: 1000 * 10,
     },
     processor: async (message: any, channel: Channel) => {
         try {
@@ -28,6 +28,5 @@ export const exampleConsumer: IConsumer = {
             // Optionally, you can nack the message to requeue it
             channel.nack(message);
         }
-    }
-}
-
+    },
+};
