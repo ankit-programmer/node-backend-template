@@ -1,5 +1,5 @@
+import EventEmitter from 'node:events';
 import type { Channel, Connection, ConsumeMessage } from 'amqplib';
-import EventEmitter from 'events';
 import rabbitmq from '../config/rabbitmq';
 import logger from '../logger';
 import { buildQueueOptions, type Metadata } from '../utility/amqp';

@@ -1,6 +1,6 @@
+import http from 'node:http';
+import https from 'node:https';
 import axios from 'axios';
-import http from 'http';
-import https from 'https';
 import env from './env';
 
 const axiosInstance = axios.create({

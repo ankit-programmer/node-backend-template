@@ -1,5 +1,5 @@
+import EventEmitter from 'node:events';
 import amqp from 'amqplib';
-import EventEmitter from 'events';
 import { onShutdown } from '../lifecycle/shutdown';
 import logger from '../logger';
 import { retryUntil } from '../utility/backoff';

@@ -1,4 +1,4 @@
-import EventEmitter from 'events';
+import EventEmitter from 'node:events';
 import { type Db, MongoClient } from 'mongodb';
 import { onShutdown } from '../lifecycle/shutdown';
 import logger from '../logger';

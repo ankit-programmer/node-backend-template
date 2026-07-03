@@ -7,16 +7,15 @@ export function delay(time = 1000) {
 }
 
 type StatusMessage = 'success' | 'error';
+
 export class APIResponseBuilder {
     private status: StatusMessage;
     private isSuccess: boolean;
     private message: any;
     private data: any;
-    private code: number;
 
     constructor() {
         this.status = 'success';
-        this.code = 200;
         this.message = null;
         this.isSuccess = true;
         this.data = null;
@@ -29,26 +28,29 @@ export class APIResponseBuilder {
         };
         return this;
     }
-    setSuccess(data?: object, code: number = 200) {
-        this.code = code;
-        if (typeof data === 'object' && !Array.isArray(data) && data !== null) {
+
+    setSuccess(data?: object) {
+        if (data !== undefined) {
+            if (typeof data !== 'object' || Array.isArray(data) || data === null) {
+                throw new Error('Data must be undefined or an object');
+            }
             this.data = data;
-        } else {
-            throw new Error('Data must be undefined or an object');
         }
+        this.status = 'success';
         this.isSuccess = true;
         return this;
     }
-    setError(message: string, code: number = 400) {
+
+    setError(message: string) {
         if (typeof message !== 'string') {
             throw new Error('Message must be a string');
         }
-        this.code = code;
         this.message = message;
         this.status = 'error';
         this.isSuccess = false;
         return this;
     }
+
     build() {
         return {
             status: this.status,

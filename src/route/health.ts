@@ -5,11 +5,11 @@ import { redisStatus } from '../config/redis';
 
 const router = Router();
 
-router.get('/live', (req: Request, res: Response) => {
+router.get('/live', (_req: Request, res: Response) => {
     res.json({ status: 'ok' });
 });
 
-router.get('/ready', (req: Request, res: Response) => {
+router.get('/ready', (_req: Request, res: Response) => {
     const components = { rabbitmq: rabbitStatus(), redis: redisStatus(), mongo: mongoStatus() };
     const checks: Record<string, 'up' | 'down'> = {};
     let ready = true;

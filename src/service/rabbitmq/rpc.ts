@@ -1,4 +1,4 @@
-import EventEmitter from 'events';
+import EventEmitter from 'node:events';
 import { nanoid } from 'nanoid';
 import hash from 'object-hash';
 import { v4 as uuidv4 } from 'uuid';
@@ -41,14 +41,16 @@ class Service extends EventEmitter {
     }
 
     private async init(): Promise<void> {
-        this.consumer ??= new Consumer({
-            batch: this.options.concurrency,
-            queue: this.id,
-            processor: this.responseHandler.bind(this),
-            metadata: {
-                exclusive: true,
-            },
-        });
+        if (!this.consumer) {
+            this.consumer = new Consumer({
+                batch: this.options.concurrency,
+                queue: this.id,
+                processor: this.responseHandler.bind(this),
+                metadata: {
+                    exclusive: true,
+                },
+            });
+        }
         const available = await retryUntil(
             async () => ((await Producer().isExchangeAvailable(this.name)) ? true : undefined),
             { label: `rpc-exchange(${this.name})`, maxAttempts: this.options.timeout },

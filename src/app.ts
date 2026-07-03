@@ -17,7 +17,7 @@ export function createApp(): express.Express {
     app.use(express.json({ limit: env.BODY_LIMIT }));
     app.use(express.urlencoded({ extended: true, limit: env.BODY_LIMIT }));
 
-    app.get('/', (req: Request, res: Response) => {
+    app.get('/', (_req: Request, res: Response) => {
         res.send('Hello, World!');
     });
     app.use('/health', healthRouter);

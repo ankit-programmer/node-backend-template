@@ -1,5 +1,5 @@
+import { brotliCompress, brotliDecompress, gunzip, gzip } from 'node:zlib';
 import snappy from 'snappy';
-import { brotliCompress, brotliDecompress, gunzip, gzip } from 'zlib';
 
 export enum compressor {
     SNAPPY = 'snappy',
