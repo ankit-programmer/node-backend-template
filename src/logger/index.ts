@@ -25,15 +25,16 @@ function buildDevLogger(logLevel: string) {
 }
 
 function buildProdLogger(logLevel: string) {
-    return createLogger({
+    const logger = createLogger({
         level: logLevel,
         format: combine(timestamp(), format.errors({ stack: true }), format.json()),
         defaultMeta: { service: env.SERVICE_NAME },
-        transports: [
-            new transports.Console(),
-            new transports.File({ filename: 'logs/app.log', maxsize: MAX_LOG_FILE_BYTES, maxFiles: MAX_LOG_FILES }),
-        ],
+        transports: [new transports.Console()],
     });
+    if (env.LOG_TO_FILE) {
+        logger.add(new transports.File({ filename: 'logs/app.log', maxsize: MAX_LOG_FILE_BYTES, maxFiles: MAX_LOG_FILES }));
+    }
+    return logger;
 }
 
 export default env.NODE_ENV === 'development' ? buildDevLogger(env.LOG_LEVEL) : buildProdLogger(env.LOG_LEVEL);

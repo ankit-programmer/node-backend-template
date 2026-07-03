@@ -13,6 +13,7 @@ const envSchema = z.object({
     PORT: z.coerce.number().int().positive().default(3000),
     SERVICE_NAME: z.string().default('backend-template'),
     LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).default('info'),
+    LOG_TO_FILE: booleanish,
 
     QUEUE_CONNECTION_URL: z.string().optional(),
     REDIS_CONNECTION_STRING: z.string().optional(),

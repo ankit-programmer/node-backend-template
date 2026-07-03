@@ -6,7 +6,6 @@ const dockerAvailable = inject('dockerAvailable');
 describe.skipIf(!dockerAvailable)('RabbitMQ publish/consume round-trip', () => {
     let Producer: typeof import('../../src/config/producer').Producer;
     let Consumer: typeof import('../../src/consumer/consumer').Consumer;
-    let compression: typeof import('../../src/utility/compression');
     let rabbit: import('../../src/config/rabbitmq').RabbitConnection;
     const consumers: import('../../src/consumer/consumer').Consumer[] = [];
 
@@ -14,7 +13,6 @@ describe.skipIf(!dockerAvailable)('RabbitMQ publish/consume round-trip', () => {
         process.env.QUEUE_CONNECTION_URL = inject('rabbitUrl');
         ({ Producer } = await import('../../src/config/producer'));
         ({ Consumer } = await import('../../src/consumer/consumer'));
-        compression = await import('../../src/utility/compression');
         rabbit = (await import('../../src/config/rabbitmq')).default();
         await rabbit.connect();
     });

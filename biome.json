@@ -28,6 +28,18 @@
             }
         }
     },
+    "overrides": [
+        {
+            "includes": ["test/**"],
+            "linter": {
+                "rules": {
+                    "suspicious": {
+                        "noConsole": "off"
+                    }
+                }
+            }
+        }
+    ],
     "assist": {
         "actions": {
             "source": {

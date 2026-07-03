@@ -36,11 +36,11 @@ export function makeFakeChannel(): FakeChannel {
     channel.failConfirms = (n: number) => {
         confirmFailures = n;
     };
-    channel.publish = vi.fn((exchange, routingKey, content, options, cb: ConfirmCallback) => {
+    channel.publish = vi.fn((_exchange, _routingKey, _content, _options, cb: ConfirmCallback) => {
         confirm(cb);
         return true;
     });
-    channel.sendToQueue = vi.fn((queue, content, options, cb: ConfirmCallback) => {
+    channel.sendToQueue = vi.fn((_queue, _content, _options, cb: ConfirmCallback) => {
         confirm(cb);
         return true;
     });
