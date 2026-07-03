@@ -1,12 +1,14 @@
+import env from './config/env';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import { AuthMethod, auth } from './middleware/auth';
 import errorHandler from './middleware/error-handler';
-import env from './config/env';
 import exampleRouter from './route/example/index';
+import searchRouter from './route/search/index';
 import { Service } from './service/rabbitmq/rpc';
 import { APIResponseBuilder } from './utility';
+import producer from './config/producer';
 
 const app = express();
 const port = env.PORT || 3000;
@@ -22,10 +24,13 @@ app.get('/', (req: Request, res: Response) => {
     res.send('Hello, World!');
 });
 app.use('/example', auth([AuthMethod.NONE]), exampleRouter);
-const exampleService = new Service('example_service');
+app.use('/search', auth([AuthMethod.NONE]), searchRouter);
+const vmService = Service('example_service', { timeout: 60 });
+const otherService = Service('example_service', { timeout: 60 });
 app.get('/rpc', async (req: Request, res: Response) => {
-    const response = await exampleService.call({ id: req.params.id });
-    res.json(new APIResponseBuilder().setSuccess(response).build());
+    const response = await vmService.call({});
+    // const response = await producer.publishToQueue("agent", "testing");
+    res.json(new APIResponseBuilder().setSuccess({ response }).build());
 })
 
 app.use(errorHandler as any);
@@ -33,3 +38,7 @@ app.use(errorHandler as any);
 app.listen(port, () => {
     console.log(`Server is running at http://localhost:${port}`);
 });
+
+/**
+ * Script Request => Sync or RabbitMQ
+ */

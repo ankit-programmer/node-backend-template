@@ -1,3 +1,4 @@
+// @ts-nocheck
 import RTLayer from 'rtlayer-node';
 import env from './env';
 const apiKey = env.RTLAYER_API_KEY || "";
