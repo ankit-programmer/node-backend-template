@@ -4,9 +4,13 @@
     "description": "Use this template to get new projects up and running fast.",
     "main": "index.js",
     "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1",
+        "test": "vitest run",
+        "test:unit": "vitest run --project unit",
+        "test:integration": "vitest run --project integration",
+        "test:watch": "vitest --project unit",
+        "coverage": "vitest run --project unit --coverage",
         "build": "tsc",
-        "typecheck": "tsc --noEmit",
+        "typecheck": "tsc --noEmit -p tsconfig.test.json",
         "lint": "biome check .",
         "lint:fix": "biome check --write .",
         "start": "node dist/server.js",
@@ -47,7 +51,12 @@
         "@types/luxon": "^3.7.1",
         "@types/node": "^24.10.1",
         "@types/object-hash": "^3.0.6",
+        "@types/supertest": "^7.2.0",
+        "@vitest/coverage-v8": "^4.1.9",
+        "supertest": "^7.2.2",
+        "testcontainers": "^12.0.4",
         "ts-node-dev": "^2.0.0",
-        "typescript": "^5.7.0"
+        "typescript": "^5.7.0",
+        "vitest": "^4.1.9"
     }
 }

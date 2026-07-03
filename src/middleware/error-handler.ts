@@ -17,8 +17,10 @@ const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
         return;
     }
     logger.error(err);
-    const message = env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message || 'Internal Server Error';
-    res.status(500).json(responseBuilder.setError(message).build());
+    const status = Number(err?.status ?? err?.statusCode) || 500;
+    const exposeMessage = status < 500 || env.NODE_ENV !== 'production';
+    const message = exposeMessage ? err.message || 'Internal Server Error' : 'Internal Server Error';
+    res.status(status).json(responseBuilder.setError(message).build());
 };
 
 export default errorHandler;
