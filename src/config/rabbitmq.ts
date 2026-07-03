@@ -2,7 +2,7 @@ import amqp from 'amqplib';
 import EventEmitter from 'events';
 import { onShutdown } from '../lifecycle/shutdown';
 import logger from '../logger';
-import { delay } from '../utility';
+import { retryUntil } from '../utility/backoff';
 import { requireEnv } from './env';
 
 export type Connection = amqp.Connection;
@@ -25,44 +25,42 @@ export class RabbitConnection extends EventEmitter {
     }
 
     public connect(): Promise<void> {
-        this.connectPromise ??= this.setupConnection().then(() => undefined);
+        this.connectPromise ??= this.setupConnection();
         return this.connectPromise;
     }
 
-    private async setupConnection(): Promise<Connection> {
-        let retry = 0;
-        while (!this.connection && !this.gracefulClose) {
-            this.connection = await amqp.connect(this.connectionString).catch(() => undefined);
-            if (this.connection) break;
-            retry = Math.min(++retry, 30);
-            await delay(1000 * retry);
-            logger.info('Waiting for Rabbit Connection');
-        }
+    private async setupConnection(): Promise<void> {
+        const connection = await retryUntil(
+            async (): Promise<Connection | undefined> => {
+                try {
+                    return await amqp.connect(this.connectionString);
+                } catch (error: any) {
+                    logger.warn(`[RABBIT] Connect failed: ${error.message}`);
+                    return undefined;
+                }
+            },
+            { label: 'rabbitmq-connect', shouldStop: () => this.gracefulClose },
+        );
+        if (!connection) return;
+        this.connection = connection;
         this.initEventListeners();
-        return this.connection!;
     }
 
     private initEventListeners() {
         if (!this.connection) return;
-        logger.info(`[RABBIT](onConnectionReady) Connection established to ${this.connectionString}`);
+        logger.info('[RABBIT] Connection established');
         this.emit('connect', this.connection);
-        this.connection.on('close', (error) => {
+
+        this.connection.on('error', (error) => logger.error('[RABBIT] Connection error', error));
+        this.connection.on('close', () => {
             this.connection?.removeAllListeners();
             this.connection = undefined;
             if (this.gracefulClose) {
-                logger.info('[RABBIT](onConnectionClosed) Gracefully');
+                logger.info('[RABBIT] Connection closed gracefully');
                 this.emit('gracefulClose');
-            } else {
-                logger.error('[RABBIT](onConnectionClosed) Abruptly', error);
-                this.setupConnection();
+                return;
             }
-        });
-
-        this.connection.on('error', (error) => {
-            logger.error('[Rabbit] Error in Rabbit Connection : ', error);
-            this.connection?.removeAllListeners();
-            this.connection?.close();
-            this.connection = undefined;
+            logger.error('[RABBIT] Connection closed abruptly; reconnecting');
             this.setupConnection();
         });
     }
@@ -70,7 +68,7 @@ export class RabbitConnection extends EventEmitter {
     public async closeConnection(): Promise<void> {
         this.gracefulClose = true;
         if (this.connection) {
-            logger.info('[RABBIT](closeConnection) Closing connection...');
+            logger.info('[RABBIT] Closing connection...');
             await this.connection.close();
         }
     }

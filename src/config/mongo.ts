@@ -2,7 +2,7 @@ import EventEmitter from 'events';
 import { type Db, MongoClient } from 'mongodb';
 import { onShutdown } from '../lifecycle/shutdown';
 import logger from '../logger';
-import { delay } from '../utility';
+import { retryUntil } from '../utility/backoff';
 import { requireEnv } from './env';
 
 const RETRY_INTERVAL = 5000; // in millis
@@ -39,19 +39,23 @@ export class MongoService extends EventEmitter {
         return client.db(name);
     }
 
-    private async setupConnection(): Promise<MongoClient> {
-        try {
-            this.gracefulClose = false;
-            const client = new MongoClient(this.connectionString);
-            this.connection = await client.connect();
-            this.initEventListeners();
-            return this.connection;
-        } catch (err) {
-            logger.error('[MONGO](setupConnection)', err);
-            this.emit('retry');
-            await delay(RETRY_INTERVAL);
-            return this.setupConnection();
-        }
+    private async setupConnection(): Promise<void> {
+        const connection = await retryUntil(
+            async () => {
+                try {
+                    const client = new MongoClient(this.connectionString);
+                    return await client.connect();
+                } catch (error) {
+                    logger.error('[MONGO](setupConnection)', error);
+                    this.emit('retry');
+                    return undefined;
+                }
+            },
+            { label: 'mongo-connect', baseMs: RETRY_INTERVAL, shouldStop: () => this.gracefulClose },
+        );
+        if (!connection) return;
+        this.connection = connection;
+        this.initEventListeners();
     }
 
     private initEventListeners() {

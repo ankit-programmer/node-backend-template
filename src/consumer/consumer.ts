@@ -2,8 +2,13 @@ import type { Channel, Connection, ConsumeMessage } from 'amqplib';
 import EventEmitter from 'events';
 import rabbitmq from '../config/rabbitmq';
 import logger from '../logger';
-import { delay } from '../utility';
-import { type compressor, decompress } from '../utility/compression';
+import { buildQueueOptions, type Metadata } from '../utility/amqp';
+import { retryUntil } from '../utility/backoff';
+import { decompress } from '../utility/compression';
+
+export type { Metadata };
+
+const DEFAULT_AGGREGATE_TIMEOUT_SEC = 30;
 
 interface IConsumerBase {
     queue: string;
@@ -17,6 +22,7 @@ interface IConsumerAggregated extends IConsumerBase {
         enabled: true;
         timeout?: number;
     };
+    /** Owns message acknowledgement: ack/nack every message, the framework never does it for you. */
     processor: (messages: ConsumeMessage[], channel: Channel) => any;
 }
 
@@ -25,28 +31,11 @@ interface IConsumerSingle extends IConsumerBase {
         enabled?: false;
         timeout?: number;
     };
+    /** Owns message acknowledgement: ack/nack every message, the framework never does it for you. */
     processor: (message: ConsumeMessage, channel: Channel) => any;
 }
 
 export type IConsumer = IConsumerAggregated | IConsumerSingle;
-
-export interface Metadata {
-    exchange?: {
-        name: string;
-        type?: 'direct' | 'topic' | 'fanout';
-        routingKey?: string;
-    };
-    compressor?: compressor;
-    correlationId?: string;
-    replyTo?: string;
-    exclusive?: boolean;
-    skipAssert?: boolean;
-    messageTtl?: number;
-    deadLetterExchange?: string;
-    deadLetterRoutingKey?: string;
-    persistent?: boolean;
-    timestamp?: number; // Timestamp in second i.e Math.floor(Date.now()/1000)
-}
 
 export class Batch extends EventEmitter {
     private size: number;
@@ -95,7 +84,7 @@ export class Consumer {
     private aggregate: boolean = false;
     private shutdown = false;
     private metadata?: Metadata;
-    private initializing: boolean = false;
+    private initPromise?: Promise<void>;
     private batch: Batch;
 
     constructor(obj: IConsumer, connectionString?: string) {
@@ -104,96 +93,88 @@ export class Consumer {
         this.bufferSize = obj.batch;
         this.clean = obj.clean;
         this.metadata = obj.metadata;
-        // Setup aggregation
+        // Aggregated consumers always flush on a timer so sub-batch messages never sit unacked.
         this.aggregate = obj.aggregate?.enabled || false;
-        const batchSize = this.aggregate ? this.bufferSize : 1; // Only batch if aggregation is enabled
-        this.batch = new Batch(batchSize, obj.aggregate?.timeout);
+        const batchSize = this.aggregate ? this.bufferSize : 1;
+        const batchTimeout = this.aggregate ? (obj.aggregate?.timeout ?? DEFAULT_AGGREGATE_TIMEOUT_SEC) : undefined;
+        this.batch = new Batch(batchSize, batchTimeout);
         // Setup the consumer
         this.rabbitService = rabbitmq(connectionString);
         this.rabbitService.on('connect', () => this.init());
-        this.rabbitService.on('error', () => this.init());
         this.init();
     }
 
-    private async init() {
-        if (this.initializing) return;
-        logger.info('Initializing');
-        this.initializing = true;
+    private init(): Promise<void> {
+        this.initPromise ??= this.setup().finally(() => {
+            this.initPromise = undefined;
+        });
+        return this.initPromise;
+    }
+
+    private async setup(): Promise<void> {
         this.channel?.removeAllListeners();
         await this.channel?.close().catch(() => undefined);
         this.channel = undefined;
         this.connection = undefined;
-        let channel: Channel | undefined;
-        let retry = 0;
-        while (!channel) {
-            this.connection = this.rabbitService.getConnection();
-            channel = await this.connection?.createChannel().catch((err) => {
-                logger.error('[Consumer] Failed to create channel', { error: err.message });
-                return undefined;
-            });
-            if (channel) break;
-            retry = Math.min(++retry, 30);
-            logger.info('[Consumer] Waiting for channel');
-            await delay(1000 * retry);
-        }
+        const channel = await retryUntil(
+            async () => {
+                this.connection = this.rabbitService.getConnection();
+                if (!this.connection) return undefined;
+                return this.connection.createChannel().catch((error) => {
+                    logger.error('[Consumer] Failed to create channel', { error: error.message });
+                    return undefined;
+                });
+            },
+            { label: `consumer-channel(${this.queue})`, shouldStop: () => this.shutdown },
+        );
+        if (!channel) return;
         this.channel = channel;
         channel.once('error', () => this.init());
         channel.once('close', () => this.init());
         this.batch.removeAllListeners();
         this.batch.clear();
-        this.start(channel).catch(() => undefined);
-        this.initializing = false;
-        logger.info('Initialized');
+        await this.start(channel).catch((error) => {
+            logger.error(`[Consumer] Failed to start consuming ${this.queue}`, error);
+        });
+        logger.info(`[Consumer] Consuming queue ${this.queue}`);
     }
 
     private async start(channel: Channel) {
-        await this.channel?.prefetch(this.bufferSize);
-        const options: any = { durable: true };
-        if (this.metadata?.exclusive) options.exclusive = this.metadata.exclusive;
-        if (this.metadata?.messageTtl) options.messageTtl = this.metadata.messageTtl;
-        if (this.metadata?.deadLetterExchange) options.deadLetterExchange = this.metadata.deadLetterExchange;
-        if (this.metadata?.deadLetterRoutingKey) options.deadLetterRoutingKey = this.metadata.deadLetterRoutingKey;
-        if (!this.metadata?.skipAssert) await channel?.assertQueue(this.queue, options).catch(() => undefined);
+        await channel.prefetch(this.bufferSize);
+        if (!this.metadata?.skipAssert) await channel.assertQueue(this.queue, buildQueueOptions(this.metadata));
         const exchange = this.metadata?.exchange;
         if (exchange) {
-            await channel
-                ?.assertExchange(exchange.name, exchange.type || 'direct', { durable: true })
-                .catch(() => undefined);
-            await channel
-                ?.bindQueue(this.queue, exchange.name, exchange.routingKey || 'default')
-                .catch(() => undefined);
+            await channel.assertExchange(exchange.name, exchange.type || 'direct', { durable: true });
+            await channel.bindQueue(this.queue, exchange.name, exchange.routingKey || 'default');
         }
         this.batch.on('process', async (messages: any[]) => {
             if (this.shutdown) {
-                logger.info('This consumer is shutting down, no longer processing messages');
+                logger.info('[Consumer] Shutting down, no longer processing messages');
                 return;
             }
             try {
                 this.aggregate
-                    ? await this.processor(messages as any, channel!)
-                    : await this.processor(messages[0], channel!);
+                    ? await this.processor(messages as any, channel)
+                    : await this.processor(messages[0], channel);
             } catch (error: any) {
-                logger.error(error);
-                throw error;
+                logger.error(`[Consumer] Processor for ${this.queue} threw`, error);
             }
         });
-        // Start consuming messages
-        const response = await channel
-            ?.consume(
-                this.queue,
-                async (message: ConsumeMessage | null) => {
-                    if (message?.properties.contentEncoding) {
-                        const content = await decompress(message?.content!, message.properties.contentEncoding).catch(
-                            () => '{"error":"Failed to decompress message"}',
-                        );
-                        message!.content = Buffer.from(content);
-                    }
-                    this.batch.push(message);
-                },
-                { noAck: false },
-            )
-            .catch(() => undefined);
-        this.tag = response?.consumerTag;
+        const response = await channel.consume(
+            this.queue,
+            async (message: ConsumeMessage | null) => {
+                if (!message) return;
+                if (message.properties.contentEncoding) {
+                    const content = await decompress(message.content, message.properties.contentEncoding).catch(
+                        () => '{"error":"Failed to decompress message"}',
+                    );
+                    message.content = Buffer.from(content);
+                }
+                this.batch.push(message);
+            },
+            { noAck: false },
+        );
+        this.tag = response.consumerTag;
     }
 
     public async stop() {
@@ -205,15 +186,9 @@ export class Consumer {
     }
 
     public async queueStatus() {
-        let status = { messageCount: 0, consumerCount: 0 };
-        if (this.channel) {
-            const options: any = { durable: true };
-            if (this.metadata && this.metadata.exclusive) options.exclusive = this.metadata.exclusive;
-            const queue = await this.channel.assertQueue(this.queue, options).catch(() => {
-                return { messageCount: 0, consumerCount: 0 };
-            });
-            status = queue;
-        }
-        return status;
+        if (!this.channel) return { messageCount: 0, consumerCount: 0 };
+        return this.channel.assertQueue(this.queue, buildQueueOptions(this.metadata)).catch(() => {
+            return { messageCount: 0, consumerCount: 0 };
+        });
     }
 }
