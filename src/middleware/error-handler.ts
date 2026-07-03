@@ -1,26 +1,24 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { ErrorRequestHandler } from 'express';
 import { ZodError } from 'zod';
+import env from '../config/env';
 import { ApiError } from '../error/api-error';
 import logger from '../logger';
 import { APIResponseBuilder } from '../utility';
 
-export default function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
+const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
     const responseBuilder = new APIResponseBuilder();
     if (err instanceof ApiError) {
-        responseBuilder.setError(err.message, err.code);
-        return res.status(err.code).json(responseBuilder.build());
+        res.status(err.code).json(responseBuilder.setError(err.message, err.code).build());
+        return;
     }
     if (err instanceof ZodError) {
-        const message: any = {};
-        err.issues?.forEach((e) => {
-            message.field = e?.path[0];
-            message.message = e?.message;
-        });
-        responseBuilder.setError(JSON.stringify(message), 400);
-        return res.status(400).json(responseBuilder.build());
+        const issues = err.issues.map((issue) => ({ field: issue.path.join('.'), message: issue.message }));
+        res.status(400).json(responseBuilder.setError(JSON.stringify(issues), 400).build());
+        return;
     }
-    // Default action for errors that are not handled.
     logger.error(err);
-    responseBuilder.setError(err.message || 'Internal Server Error', 400);
-    return res.status(400).json(responseBuilder.build());
-}
+    const message = env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message || 'Internal Server Error';
+    res.status(500).json(responseBuilder.setError(message, 500).build());
+};
+
+export default errorHandler;

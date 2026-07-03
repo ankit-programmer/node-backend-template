@@ -1,5 +1,6 @@
 import EventEmitter from 'events';
 import { type Db, MongoClient } from 'mongodb';
+import { onShutdown } from '../lifecycle/shutdown';
 import logger from '../logger';
 import { delay } from '../utility';
 import { requireEnv } from './env';
@@ -71,16 +72,21 @@ export class MongoService extends EventEmitter {
         });
     }
 
-    public closeConnection() {
+    public async closeConnection(): Promise<void> {
+        this.gracefulClose = true;
         if (this.connection) {
-            this.gracefulClose = true;
             logger.info('[MONGO](closeConnection) Closing connection...');
-            this.connection.close();
+            await this.connection.close();
         }
     }
 }
 
 const instances = new Map<string, MongoService>();
+
+export function mongoStatus(): boolean | undefined {
+    if (instances.size === 0) return undefined;
+    return [...instances.values()].every((instance) => instance.status());
+}
 
 export default (connectionString?: string): MongoService => {
     const target = connectionString ?? requireEnv('MONGO_URI');
@@ -89,6 +95,8 @@ export default (connectionString?: string): MongoService => {
         instance = new MongoService(target);
         instances.set(target, instance);
         instance.connect().catch((error) => logger.error('[MONGO] Failed to connect', error));
+        const service = instance;
+        onShutdown({ name: 'mongo', close: () => service.closeConnection() });
     }
     return instance;
 };

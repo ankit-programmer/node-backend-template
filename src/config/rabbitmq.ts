@@ -1,5 +1,6 @@
 import amqp from 'amqplib';
 import EventEmitter from 'events';
+import { onShutdown } from '../lifecycle/shutdown';
 import logger from '../logger';
 import { delay } from '../utility';
 import { requireEnv } from './env';
@@ -66,11 +67,11 @@ export class RabbitConnection extends EventEmitter {
         });
     }
 
-    public closeConnection() {
+    public async closeConnection(): Promise<void> {
         this.gracefulClose = true;
         if (this.connection) {
             logger.info('[RABBIT](closeConnection) Closing connection...');
-            this.connection.close();
+            await this.connection.close();
         }
     }
 
@@ -81,6 +82,11 @@ export class RabbitConnection extends EventEmitter {
 
 const instances = new Map<string, RabbitConnection>();
 
+export function rabbitStatus(): boolean | undefined {
+    if (instances.size === 0) return undefined;
+    return [...instances.values()].every((instance) => instance.status());
+}
+
 export default (connectionString?: string): RabbitConnection => {
     const target = connectionString ?? requireEnv('QUEUE_CONNECTION_URL');
     let instance = instances.get(target);
@@ -88,6 +94,8 @@ export default (connectionString?: string): RabbitConnection => {
         instance = new RabbitConnection(target);
         instances.set(target, instance);
         instance.connect().catch((error) => logger.error('[RABBIT] Failed to connect', error));
+        const connection = instance;
+        onShutdown({ name: 'rabbitmq', close: () => connection.closeConnection() });
     }
     return instance;
 };

@@ -1,7 +1,7 @@
 const args = require('args-parser')(process.argv);
 
+import { onShutdown, registerProcessHandlers } from '../lifecycle/shutdown';
 import logger from '../logger';
-import { delay } from '../utility';
 import { batchConsumer } from './batch-testing';
 import { Consumer, type IConsumer } from './consumer';
 import { exampleConsumer } from './rpc-consumer';
@@ -18,14 +18,6 @@ if (!selected) {
     process.exit(1);
 }
 
-const consumers = [new Consumer(selected)];
-
-process.on('SIGINT', async () => {
-    consumers.forEach((consumer) => consumer.stop());
-    await delay(10000);
-});
-
-process.on('SIGTERM', async () => {
-    consumers.forEach((consumer) => consumer.stop());
-    await delay(10000);
-});
+registerProcessHandlers();
+const consumer = new Consumer(selected);
+onShutdown({ name: `consumer(${selected.queue})`, stage: 'intake', close: () => consumer.stop() });

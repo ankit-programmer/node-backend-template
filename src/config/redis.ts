@@ -1,5 +1,6 @@
 import { crc32 } from 'crc';
 import { createClient, RESP_TYPES } from 'redis';
+import { onShutdown } from '../lifecycle/shutdown';
 import logger from '../logger';
 import { compress, compressor, decompress } from '../utility/compression';
 import { requireEnv } from './env';
@@ -21,8 +22,15 @@ export function getRedis(): RedisClient {
         client.on('ready', () => logger.info('Connection Established to Redis!'));
         client.on('error', (error) => logger.error(error));
         client.connect().catch((error) => logger.error('[REDIS] Failed to connect', error));
+        const connected = client;
+        onShutdown({ name: 'redis', close: () => connected.close() });
     }
     return client;
+}
+
+export function redisStatus(): boolean | undefined {
+    if (!client) return undefined;
+    return client.isReady;
 }
 
 export async function cget(key: string, lib: compressor = compressor.BROTLI): Promise<string | null> {

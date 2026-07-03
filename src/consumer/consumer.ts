@@ -198,7 +198,9 @@ export class Consumer {
 
     public async stop() {
         this.shutdown = true;
-        await this.channel?.cancel(this.tag!).catch(() => undefined);
+        this.channel?.removeAllListeners();
+        if (this.tag) await this.channel?.cancel(this.tag).catch(() => undefined);
+        await this.channel?.close().catch(() => undefined);
         this.clean?.();
     }
 
