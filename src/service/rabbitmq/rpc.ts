@@ -117,8 +117,8 @@ class Service extends EventEmitter {
     }
 }
 const instance = new Map<string, Service>();
-const RPC = (name: string, options: Options): Service => {
-    const signature = hash({ name, options }, { algorithm: 'sha256' });
+const RPC = (name: string, options?: Options): Service => {
+    const signature = hash({ name, options: options ?? {} }, { algorithm: 'sha256' });
     if (!instance.has(signature)) instance.set(signature, new Service(name, options));
     return instance.get(signature) as Service;
 }

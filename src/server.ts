@@ -22,7 +22,7 @@ app.get('/', (req: Request, res: Response) => {
     res.send('Hello, World!');
 });
 app.use('/example', auth([AuthMethod.NONE]), exampleRouter);
-const exampleService = new Service('example_service');
+const exampleService = Service('example_service');
 app.get('/rpc', async (req: Request, res: Response) => {
     const response = await exampleService.call({ id: req.params.id });
     res.json(new APIResponseBuilder().setSuccess(response).build());

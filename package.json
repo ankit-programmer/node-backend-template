@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "start": "node dist/server.js",
+    "start:consumer": "node dist/consumer/index.js",
     "dev-consumer": "ts-node-dev src/consumer/index.ts --consumer=example",
     "dev": "ts-node-dev src/server.ts"
   },
@@ -15,6 +17,9 @@
   "dependencies": {
     "amqplib": "^0.10.9",
     "axios": "^1.13.2",
+    "crc": "^4.3.2",
+    "object-hash": "^3.0.0",
+    "rtlayer-node": "^1.0.2",
     "body-parser": "^2.2.1",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
@@ -32,6 +37,9 @@
   },
   "devDependencies": {
     "@types/amqplib": "^0.8.2",
+    "@types/object-hash": "^3.0.6",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.7.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",

@@ -16,7 +16,6 @@ switch (args?.consumer) {
   case "batch":
     CONSUMERS.push(batchConsumer);
     break;
-    break;
   default:
     break;
 }
