@@ -1,9 +1,9 @@
 import type { ConfirmChannel } from 'amqplib';
-import type { Metadata } from '../consumer';
+import type { Metadata } from '../consumer/consumer';
 import logger from '../logger';
 import { delay } from '../utility';
-import rabbitmqService, { Channel, type Connection, type RabbitConnection } from './rabbitmq';
-import { compress, type compressor } from './redis';
+import { compress, type compressor } from '../utility/compression';
+import rabbitmqService, { type Connection, type RabbitConnection } from './rabbitmq';
 
 interface ExchangeOptions {
     replyTo?: string;
@@ -143,5 +143,3 @@ export const Producer = (connectionString?: string) => {
         instance.set(connectionString || 'default', new RabbitMqProducer(connectionString));
     return instance.get(connectionString || 'default') as RabbitMqProducer;
 };
-
-export default Producer();

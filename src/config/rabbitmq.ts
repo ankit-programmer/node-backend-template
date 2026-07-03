@@ -2,34 +2,36 @@ import amqp from 'amqplib';
 import EventEmitter from 'events';
 import logger from '../logger';
 import { delay } from '../utility';
-import env from './env';
+import { requireEnv } from './env';
+
 export type Connection = amqp.Connection;
 export type Channel = amqp.Channel;
 
-const RABBIT_CONNECTION_STRING = env.QUEUE_CONNECTION_URL;
-if (!RABBIT_CONNECTION_STRING) throw new Error('RABBIT_CONNECTION_STRING is not defined in environment variables');
-
 export class RabbitConnection extends EventEmitter {
-    private static instance: RabbitConnection;
     private gracefulClose: boolean = false;
     private connectionString: string;
     private connection?: Connection;
+    private connectPromise?: Promise<void>;
 
     constructor(connectionString: string) {
         super();
         if (!connectionString) throw new Error('connectionString is required');
         this.connectionString = connectionString;
-        this.setupConnection();
     }
 
     public status() {
         return !!this.connection;
     }
 
+    public connect(): Promise<void> {
+        this.connectPromise ??= this.setupConnection().then(() => undefined);
+        return this.connectPromise;
+    }
+
     private async setupConnection(): Promise<Connection> {
         let retry = 0;
         while (!this.connection && !this.gracefulClose) {
-            this.connection = await amqp.connect(this.connectionString).catch((error) => undefined);
+            this.connection = await amqp.connect(this.connectionString).catch(() => undefined);
             if (this.connection) break;
             retry = Math.min(++retry, 30);
             await delay(1000 * retry);
@@ -51,10 +53,8 @@ export class RabbitConnection extends EventEmitter {
                 this.emit('gracefulClose');
             } else {
                 logger.error('[RABBIT](onConnectionClosed) Abruptly', error);
-                // this.emit("error", error);
+                this.setupConnection();
             }
-
-            if (!this.gracefulClose) this.setupConnection();
         });
 
         this.connection.on('error', (error) => {
@@ -67,8 +67,8 @@ export class RabbitConnection extends EventEmitter {
     }
 
     public closeConnection() {
+        this.gracefulClose = true;
         if (this.connection) {
-            this.gracefulClose = true;
             logger.info('[RABBIT](closeConnection) Closing connection...');
             this.connection.close();
         }
@@ -79,8 +79,15 @@ export class RabbitConnection extends EventEmitter {
     }
 }
 
-const instance = new Map<string, RabbitConnection>();
-export default (connectionString: string = RABBIT_CONNECTION_STRING) => {
-    if (!instance.has(connectionString)) instance.set(connectionString, new RabbitConnection(connectionString));
-    return instance.get(connectionString) as RabbitConnection;
+const instances = new Map<string, RabbitConnection>();
+
+export default (connectionString?: string): RabbitConnection => {
+    const target = connectionString ?? requireEnv('QUEUE_CONNECTION_URL');
+    let instance = instances.get(target);
+    if (!instance) {
+        instance = new RabbitConnection(target);
+        instances.set(target, instance);
+        instance.connect().catch((error) => logger.error('[RABBIT] Failed to connect', error));
+    }
+    return instance;
 };

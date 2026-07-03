@@ -1,7 +1,9 @@
 import RTLayer from 'rtlayer-node';
-import env from './env';
+import { requireEnv } from './env';
 
-const apiKey = env.RTLAYER_API_KEY || '';
-const rtlayer = new RTLayer(apiKey);
+let instance: RTLayer | undefined;
 
-export default rtlayer;
+export default (): RTLayer => {
+    instance ??= new RTLayer(requireEnv('RTLAYER_API_KEY'));
+    return instance;
+};

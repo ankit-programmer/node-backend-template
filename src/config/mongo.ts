@@ -1,27 +1,41 @@
 import EventEmitter from 'events';
-import { MongoClient } from 'mongodb';
+import { type Db, MongoClient } from 'mongodb';
 import logger from '../logger';
 import { delay } from '../utility';
-import env from './env';
+import { requireEnv } from './env';
 
 const RETRY_INTERVAL = 5000; // in millis
-const MONGO_CONNECTION_STRING = env.MONGO_URI;
-if (!MONGO_CONNECTION_STRING) throw new Error('MONGO_CONNECTION_STRING is not defined in environment variables');
-class MongoService extends EventEmitter {
-    private static instance: MongoService;
+
+export class MongoService extends EventEmitter {
     private gracefulClose: boolean = false;
     private connectionString: string;
     private connection?: MongoClient;
+    private connectPromise?: Promise<void>;
 
     constructor(connectionString: string) {
         super();
         if (!connectionString) throw new Error('connectionString is required');
         this.connectionString = connectionString;
-        this.setupConnection();
     }
 
-    public static getSingletonInstance(connectionString: string): MongoService {
-        return (MongoService.instance ||= new MongoService(connectionString));
+    public status() {
+        return !!this.connection;
+    }
+
+    public connect(): Promise<void> {
+        this.connectPromise ??= this.setupConnection().then(() => undefined);
+        return this.connectPromise;
+    }
+
+    public async getClient(): Promise<MongoClient> {
+        await this.connect();
+        if (this.connection) return this.connection;
+        return new Promise((resolve) => this.once('connect', resolve));
+    }
+
+    public async db(name?: string): Promise<Db> {
+        const client = await this.getClient();
+        return client.db(name);
     }
 
     private async setupConnection(): Promise<MongoClient> {
@@ -52,10 +66,8 @@ class MongoService extends EventEmitter {
                 this.emit('gracefulClose');
             } else {
                 logger.error('[MONGO](onConnectionClosed) Abruptly', error);
-                this.emit('error', error);
+                this.setupConnection();
             }
-
-            if (!this.gracefulClose) this.setupConnection();
         });
     }
 
@@ -68,6 +80,15 @@ class MongoService extends EventEmitter {
     }
 }
 
-export default (connectionString: string = MONGO_CONNECTION_STRING): MongoService => {
-    return MongoService.getSingletonInstance(connectionString);
+const instances = new Map<string, MongoService>();
+
+export default (connectionString?: string): MongoService => {
+    const target = connectionString ?? requireEnv('MONGO_URI');
+    let instance = instances.get(target);
+    if (!instance) {
+        instance = new MongoService(target);
+        instances.set(target, instance);
+        instance.connect().catch((error) => logger.error('[MONGO] Failed to connect', error));
+    }
+    return instance;
 };

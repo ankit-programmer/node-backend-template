@@ -2,9 +2,9 @@ import EventEmitter from 'events';
 import { nanoid } from 'nanoid';
 import hash from 'object-hash';
 import { v4 as uuidv4 } from 'uuid';
-import producer from '../../config/producer';
-import rabbitmqService, { type Channel, Connection } from '../../config/rabbitmq';
-import { Consumer } from '../../consumer';
+import { Producer } from '../../config/producer';
+import type { Channel } from '../../config/rabbitmq';
+import { Consumer } from '../../consumer/consumer';
 import logger from '../../logger';
 import { delay } from '../../utility';
 
@@ -43,7 +43,7 @@ class Service extends EventEmitter {
         // Wait for exchange
         let retry = 0;
         while (!this.isExchangeAvailable) {
-            this.isExchangeAvailable = await producer.isExchangeAvailable(this.name);
+            this.isExchangeAvailable = await Producer().isExchangeAvailable(this.name);
             if (this.isExchangeAvailable) {
                 logger.info(`Exchange (${this.name}) is available.`);
                 continue;
@@ -92,11 +92,13 @@ class Service extends EventEmitter {
             while (!this.isExchangeAvailable) {
                 await delay(1000);
             }
-            producer.publish(this.name, payload, { replyTo: this.id, correlationId, routingKey }).catch((error) => {
-                clearTimeout(timeout);
-                this.removeListener(correlationId, responseListener);
-                reject(new Error('Failed to send request: ' + error.message));
-            });
+            Producer()
+                .publish(this.name, payload, { replyTo: this.id, correlationId, routingKey })
+                .catch((error) => {
+                    clearTimeout(timeout);
+                    this.removeListener(correlationId, responseListener);
+                    reject(new Error('Failed to send request: ' + error.message));
+                });
         });
     }
     /**
@@ -110,7 +112,7 @@ class Service extends EventEmitter {
         while (!this.isExchangeAvailable) {
             await delay(1000);
         }
-        return await producer
+        return await Producer()
             .publish(this.name, payload, { routingKey })
             .then(() => true)
             .catch((error) => {

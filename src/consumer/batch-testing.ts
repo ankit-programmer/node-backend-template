@@ -1,6 +1,6 @@
 import type { Channel, ConsumeMessage } from 'amqplib';
 import logger from '../logger';
-import type { IConsumer } from '.';
+import type { IConsumer } from './consumer';
 
 export const batchConsumer: IConsumer = {
     queue: 'batch_example',
