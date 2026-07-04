@@ -1,35 +1,20 @@
-import express, { Request, Response } from 'express';
-import cors from 'cors';
-import bodyParser from 'body-parser';
-import { AuthMethod, auth } from './middleware/auth';
-import errorHandler from './middleware/error-handler';
+import { createApp } from './app';
 import env from './config/env';
-import exampleRouter from './route/example/index';
-import { Service } from './service/rabbitmq/rpc';
-import { APIResponseBuilder } from './utility';
+import { onShutdown, registerProcessHandlers } from './lifecycle/shutdown';
+import logger from './logger';
 
-const app = express();
-const port = env.PORT || 3000;
-app.use(cors({
-    origin: "*",
-    maxAge: 86400,
-    preflightContinue: true,
-}));
-app.use(bodyParser.json({ limit: '8mb' }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.get('/', (req: Request, res: Response) => {
-    res.send('Hello, World!');
+registerProcessHandlers();
+
+const server = createApp().listen(env.PORT, () => {
+    logger.info(`Server is running at http://localhost:${env.PORT}`);
 });
-app.use('/example', auth([AuthMethod.NONE]), exampleRouter);
-const exampleService = new Service('example_service');
-app.get('/rpc', async (req: Request, res: Response) => {
-    const response = await exampleService.call({ id: req.params.id });
-    res.json(new APIResponseBuilder().setSuccess(response).build());
-})
 
-app.use(errorHandler as any);
-// Start the server
-app.listen(port, () => {
-    console.log(`Server is running at http://localhost:${port}`);
+onShutdown({
+    name: 'http-server',
+    stage: 'intake',
+    close: () =>
+        new Promise<void>((resolve) => {
+            server.close(() => resolve());
+            server.closeIdleConnections();
+        }),
 });

@@ -1,187 +1,71 @@
-// @ts-nocheck
-const { crc32 } = require('crc');
-import { brotliCompress, brotliDecompress, gzip, gunzip } from 'zlib';
-import snappy from 'snappy';
-import { createClient } from 'redis';
+import { crc32 } from 'crc';
+import { createClient, RESP_TYPES } from 'redis';
+import { onShutdown } from '../lifecycle/shutdown';
 import logger from '../logger';
-import env from './env';
-export enum compressor {
-    'SNAPPY' = 'snappy',
-    'GZIP' = 'gzip',
-    'BROTLI' = 'brotli'
-}
-if (!env.REDIS_CONNECTION_STRING) throw new Error("REDIS_CONNECTION_STRING is required");
-const client = createClient({
-    url: env.REDIS_CONNECTION_STRING,
-    socket: {
-        reconnectStrategy: (retries, cause) => retries * 1000
-    }
-})
-try {
-    client.connect();
+import { compress, compressor, decompress } from '../utility/compression';
+import { requireEnv } from './env';
 
-} catch (error) {
-    logger.error(error);
-    client.connect();
-}
-client.on("ready", () => {
-    logger.info("Connection Established to Redis!");
-})
+const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 7;
 
-client.on("error", (error: any) => {
-    logger.error(error)
-})
+type RedisClient = ReturnType<typeof createClient>;
 
+let client: RedisClient | undefined;
 
-
-async function cget(key: string, lib: compressor = compressor.BROTLI): Promise<string | null> {
-    try {
-        const rawValue = await client.get(client.commandOptions({ returnBuffers: true }), key);
-        if (!rawValue) {
-            return null;
-        }
-        // Compressed data received from redis.
-        const value = await decompress(rawValue as any, lib);
-        return value;
-
-    } catch (error) {
-        throw error;
-    }
-
-}
-
-async function cset(key: string, value: string, ttlSecond: number = 60 * 60 * 24 * 7, lib: compressor = compressor.BROTLI): Promise<boolean> {
-    try {
-        const buffer = await compress(value, lib);
-        const status = await client.set(key, buffer, {
-            EX: ttlSecond
+export function getRedis(): RedisClient {
+    if (!client) {
+        client = createClient({
+            url: requireEnv('REDIS_CONNECTION_STRING'),
+            socket: {
+                reconnectStrategy: (retries) => retries * 1000,
+            },
         });
-        return true;
-    } catch (error) {
-        throw error;
+        client.on('ready', () => logger.info('Connection Established to Redis!'));
+        client.on('error', (error) => logger.error(error));
+        client.connect().catch((error) => logger.error('[REDIS] Failed to connect', error));
+        const connected = client;
+        onShutdown({ name: 'redis', close: () => connected.close() });
     }
+    return client;
 }
 
-export function compress(text: string, lib: compressor): Promise<Buffer> {
-    return new Promise(async (resolve, reject) => {
-        if (typeof text !== 'string') {
-            return reject(new Error('Provide a valid string to compress.'));
-        }
-        switch (lib) {
-            case compressor.SNAPPY:
-                try {
-                    let ctext = await snappy.compress(text);
-                    return resolve(ctext);
-
-                } catch (error) {
-                    return reject(error);
-                }
-                break;
-            case compressor.BROTLI:
-                brotliCompress(text, {}, (error, ctext) => {
-                    if (!error) {
-                        return resolve(ctext);
-                    }
-
-                    return reject(error);
-                });
-                break;
-            case compressor.GZIP:
-                gzip(text, (error, ctext) => {
-                    if (!error) {
-                        return resolve(ctext);
-                    }
-
-                    return reject(error);
-                })
-                break;
-            default:
-                return reject(new Error('Provide a valid compressor.'));
-                break;
-        }
-
-
-
-    })
+export function redisStatus(): boolean | undefined {
+    if (!client) return undefined;
+    return client.isReady;
 }
 
-export function decompress(value: Buffer, lib: compressor): Promise<string> {
-    return new Promise(async (resolve, reject) => {
-        if (!(value instanceof Buffer)) {
-            return reject(new Error('Provide a valid Buffer to decompress.'));
-        }
-        switch (lib) {
-            case compressor.SNAPPY:
-                try {
-                    let string = await snappy.uncompress(value, { asBuffer: false });
-                    return resolve(string as any);
-                } catch (error) {
-                    return reject(error);
-                }
-                break;
-            case compressor.BROTLI:
-                brotliDecompress(value, {}, (error, string) => {
-                    if (!error) {
-                        return resolve(string.toString());
-                    }
-                    return reject(error);
-
-                })
-                break;
-            case compressor.GZIP:
-                gunzip(value, (error, string) => {
-                    if (!error) {
-                        return resolve(string.toString());
-                    }
-                    return reject(error);
-
-                })
-                break;
-            default:
-                return reject(new Error('Provide a valid compressor.'));
-                break;
-        }
-    })
-
+export async function cget(key: string, lib: compressor = compressor.BROTLI): Promise<string | null> {
+    const buffers = getRedis().withTypeMapping({ [RESP_TYPES.BLOB_STRING]: Buffer });
+    const rawValue = await buffers.get(key);
+    if (!rawValue) return null;
+    return decompress(rawValue, lib);
 }
 
+export async function cset(
+    key: string,
+    value: string,
+    ttlSecond: number = DEFAULT_TTL_SECONDS,
+    lib: compressor = compressor.BROTLI,
+): Promise<boolean> {
+    const buffer = await compress(value, lib);
+    await getRedis().set(key, buffer, { EX: ttlSecond });
+    return true;
+}
 
+export async function doesExist(key: string): Promise<boolean> {
+    const result = await getRedis().exists([key]);
+    return result > 0;
+}
 
 /**
- * 
  * @param base Base Key Name
  * @param key Key you want to shard
  * @param totalElements Expected number of records to shard or store
  * @param shardSize Number of elements you want in a single shard
- * @returns 
  */
-function shardKey(base: string, key: string, totalElements: number, shardSize: number) {
-    // Got help from : https://redislabs.com/ebook/part-2-core-concepts/01chapter-9-reducing-memory-use/9-2-sharded-structures/9-2-1-hashes/#:~:text=To%20shard%20a%20HASH%20table,method%20of%20partitioning%20our%20data.&text=the%20shard%20ID%20that%20the%20data%20will%20be%20stored%20in.&text=a%20new%20key%20for%20a,and%20the%20HASH%20key%20HASH%20.
-    let shardId;
-
+export function shardKey(base: string, key: string, totalElements: number, shardSize: number): string {
     if (Number(key) && totalElements <= 0) {
-        // Key is a number.
-        shardId = Math.floor(parseInt(key, 10) / shardSize);
-
-
-    } else {
-        // Key is a string
-        // let shards = Math.floor(2 * totalElements / shardSize);
-        let shards = Math.ceil(totalElements / shardSize);
-
-        shardId = crc32(key.toString()) % shards;
-
+        return `${base}:${Math.floor(parseInt(key, 10) / shardSize)}`;
     }
-    return `${base}:${shardId}`;
+    const shards = Math.ceil(totalElements / shardSize);
+    return `${base}:${crc32(key.toString()) % shards}`;
 }
-
-async function doesExist(key: string): Promise<boolean> {
-    try {
-        const result = await client.exists([key]);
-        return (result) ? true : false;
-    } catch (error) {
-        throw error;
-    }
-}
-const result = Object.assign(client, { doesExist, shardKey, compress, decompress, cget, cset })
-export default result;

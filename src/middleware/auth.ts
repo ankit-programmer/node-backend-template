@@ -1,77 +1,90 @@
-import { NextFunction, Request, RequestHandler, RequestParamHandler, Response } from 'express';
+import crypto from 'node:crypto';
+import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import logger from '../logger';
-import { ApiError } from '../error/api-error';
+import { requireEnv } from '../config/env';
+import { ApiError, Errors } from '../error/api-error';
+
 export enum AuthMethod {
-    TOKEN = "token",
-    API_KEY = "apiKey",
-    NONE = "none"
+    TOKEN = 'token',
+    API_KEY = 'apiKey',
+    NONE = 'none',
 }
-interface TokenData {
-    "ip": string,
-    "org": {
-        "id": string,
-        "name": string
-    },
-    "user": {
-        "id": string
-        "meta": string
-        "email": string
-    },
-    "userEmail": string
-};
+
+export interface TokenData {
+    ip: string;
+    org: {
+        id: string;
+        name: string;
+    };
+    user: {
+        id: string;
+        meta: string;
+        email: string;
+    };
+    userEmail: string;
+}
+
 declare global {
     namespace Express {
-        interface Response {
-            locals: {
-                user?: null;
-            }
+        interface Locals {
+            user?: TokenData;
         }
     }
 }
+
+type Authenticator = (req: Request, res: Response) => void | Promise<void>;
+
+const authenticators: Record<AuthMethod, Authenticator> = {
+    [AuthMethod.NONE]: () => undefined,
+    [AuthMethod.API_KEY]: apiKeyAuth,
+    [AuthMethod.TOKEN]: tokenAuth,
+};
+
+/** Tries each method in order; the first to succeed wins, otherwise the last failure is forwarded. */
 export function auth(authMethods: AuthMethod[] = [AuthMethod.API_KEY]) {
-    return async function (req: Request, res: Response, next: NextFunction) {
-        const methods = [...authMethods];
-        let done = false;
-        while (methods.length > 0 && !done) {
-            const method = methods.shift();
-            logger.info(`Authenticating with ${method}...`);
+    return async (req: Request, res: Response, next: NextFunction) => {
+        let lastError: unknown;
+        for (const method of authMethods) {
+            const authenticate = authenticators[method];
+            if (!authenticate) {
+                lastError = new ApiError(`Unknown auth method: ${method}`, 401, Errors.Authentication);
+                continue;
+            }
             try {
-                switch (method) {
-                    case 'token':
-                        throw new ApiError('Not Implemented', 501);
-                        done = true;
-                        break;
-                    case 'apiKey':
-                        await apiKeyAuth(req, res, next);
-                        done = true;
-                        break;
-                    case 'none':
-                        done = true;
-                        next();
-                        break;
-                    default:
-                        done = true;
-                        next(new ApiError('Authentication failed. Please authenticate yourself.', 401));
-                        break;
-
-
-                }
+                await authenticate(req, res);
+                return next();
             } catch (error) {
-                logger.error(error);
-                if (methods.length == 0) {
-                    next(error);
-                }
+                lastError = error;
             }
         }
+        next(
+            lastError ??
+                new ApiError('Authentication failed. Please authenticate yourself.', 401, Errors.Authentication),
+        );
+    };
+}
+
+function tokenAuth(req: Request, res: Response): void {
+    const header = req.header('authorization');
+    const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined;
+    if (!token) throw new ApiError('Missing bearer token', 401, Errors.Authentication);
+    const secret = requireEnv('JWT_SECRET');
+    try {
+        res.locals.user = jwt.verify(token, secret) as TokenData;
+    } catch {
+        throw new ApiError('Invalid or expired token', 401, Errors.Authentication);
     }
 }
 
-export async function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
-    let apiKey = req.header('x-api-key') ? req.header('x-api-key') : req.query.apiKey?.toString();
-    if (apiKey && apiKey === process.env.MASTER_API_KEY) {
-        next();
-    } else {
-        throw new ApiError('API Key not found', 401);
+function apiKeyAuth(req: Request): void {
+    const apiKey = req.header('x-api-key');
+    if (!apiKey || !timingSafeEqual(apiKey, requireEnv('MASTER_API_KEY'))) {
+        throw new ApiError('Invalid API key', 401, Errors.Authentication);
     }
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+    const digestA = crypto.createHash('sha256').update(a).digest();
+    const digestB = crypto.createHash('sha256').update(b).digest();
+    return crypto.timingSafeEqual(digestA, digestB);
 }

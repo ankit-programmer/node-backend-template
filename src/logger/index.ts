@@ -1,39 +1,42 @@
-import { format, createLogger, transports } from 'winston';
-import { DateTime } from 'luxon';
-const { timestamp, combine, printf, colorize } = format;
-const SERVICE_NAME = process.env.SERVICE_NAME || 'backend-template';
+import { createLogger, format, transports } from 'winston';
+import env from '../config/env';
 
-function buildDevLogger(logLevel?: string) {
+const { timestamp, combine, printf, colorize } = format;
+
+const MAX_LOG_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_LOG_FILES = 5;
+
+function buildDevLogger(logLevel: string) {
     const localLogFormat = printf(({ level, message, timestamp, stack }: any) => {
-        return `${timestamp} ${level} ${message || ""} ${stack || ""}`;
-    })
+        return `${timestamp} ${level} ${message || ''} ${stack || ''}`;
+    });
 
     return createLogger({
         level: logLevel,
-        format: combine(colorize(), timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), format.errors({ stack: true }), localLogFormat),
-        defaultMeta: SERVICE_NAME,
-        transports: [new transports.Console()]
+        format: combine(
+            colorize(),
+            timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+            format.errors({ stack: true }),
+            localLogFormat,
+        ),
+        defaultMeta: { service: env.SERVICE_NAME },
+        transports: [new transports.Console()],
     });
 }
 
-
-function buildProdLogger(logLevel?: string) {
-    return createLogger({
+function buildProdLogger(logLevel: string) {
+    const logger = createLogger({
         level: logLevel,
         format: combine(timestamp(), format.errors({ stack: true }), format.json()),
-        defaultMeta: { service: SERVICE_NAME },
-        transports: [
-            new transports.Console(),
-            new transports.File({ filename: `logs/log_${DateTime.now().toFormat('dd_MMM_yyyy')}.log` })
-        ]
+        defaultMeta: { service: env.SERVICE_NAME },
+        transports: [new transports.Console()],
     });
-}
-function logger() {
-    if (process.env.NODE_ENV === 'development') {
-        return buildDevLogger(process.env.LOG_LEVEL);
-    } else {
-        return buildProdLogger(process.env.LOG_LEVEL);
+    if (env.LOG_TO_FILE) {
+        logger.add(
+            new transports.File({ filename: 'logs/app.log', maxsize: MAX_LOG_FILE_BYTES, maxFiles: MAX_LOG_FILES }),
+        );
     }
+    return logger;
 }
 
-export default logger();
+export default env.NODE_ENV === 'development' ? buildDevLogger(env.LOG_LEVEL) : buildProdLogger(env.LOG_LEVEL);
