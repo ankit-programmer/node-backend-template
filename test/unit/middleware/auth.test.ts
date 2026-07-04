@@ -56,12 +56,12 @@ describe('auth middleware', () => {
             const next = await run([AuthMethod.API_KEY], makeReq());
             const error = next.mock.calls[0][0];
             expect(error).toBeInstanceOf(ApiError);
-            expect(error.code).toBe(401);
+            expect(error.status).toBe(401);
         });
 
         it('rejects a wrong key with 401', async () => {
             const next = await run([AuthMethod.API_KEY], makeReq({ 'x-api-key': 'wrong' }));
-            expect(next.mock.calls[0][0].code).toBe(401);
+            expect(next.mock.calls[0][0].status).toBe(401);
         });
 
         it('ignores the legacy apiKey query parameter', async () => {
@@ -96,23 +96,23 @@ describe('auth middleware', () => {
         it('rejects an expired token with 401', async () => {
             const token = jwt.sign({ ...payload, exp: Math.floor(Date.now() / 1000) - 60 }, JWT_SECRET);
             const next = await run([AuthMethod.TOKEN], makeReq({ authorization: `Bearer ${token}` }));
-            expect(next.mock.calls[0][0].code).toBe(401);
+            expect(next.mock.calls[0][0].status).toBe(401);
         });
 
         it('rejects a malformed token with 401', async () => {
             const next = await run([AuthMethod.TOKEN], makeReq({ authorization: 'Bearer not.a.jwt' }));
-            expect(next.mock.calls[0][0].code).toBe(401);
+            expect(next.mock.calls[0][0].status).toBe(401);
         });
 
         it('rejects a token signed with the wrong secret', async () => {
             const token = jwt.sign(payload, 'some-other-secret-also-long-enough');
             const next = await run([AuthMethod.TOKEN], makeReq({ authorization: `Bearer ${token}` }));
-            expect(next.mock.calls[0][0].code).toBe(401);
+            expect(next.mock.calls[0][0].status).toBe(401);
         });
 
         it('rejects a missing Authorization header with 401', async () => {
             const next = await run([AuthMethod.TOKEN], makeReq());
-            expect(next.mock.calls[0][0].code).toBe(401);
+            expect(next.mock.calls[0][0].status).toBe(401);
         });
     });
 
@@ -128,7 +128,7 @@ describe('auth middleware', () => {
         it('forwards the last failure when every method fails', async () => {
             const next = await run([AuthMethod.TOKEN, AuthMethod.API_KEY], makeReq());
             expect(next).toHaveBeenCalledTimes(1);
-            expect(next.mock.calls[0][0].code).toBe(401);
+            expect(next.mock.calls[0][0].status).toBe(401);
         });
 
         it('rejects an empty method list', async () => {

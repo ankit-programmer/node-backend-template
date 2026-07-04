@@ -1,0 +1,56 @@
+# Local dev dependencies only. The app itself runs on the host: `npm run dev`.
+# Integration tests do NOT use this stack; they spin up isolated testcontainers.
+# Ports match .env.example, so `cp .env.example .env` works with zero edits.
+services:
+    rabbitmq:
+        image: rabbitmq:3-management-alpine
+        ports:
+            - "5672:5672" # AMQP (QUEUE_CONNECTION_URL)
+            - "15672:15672" # management UI (guest/guest)
+        healthcheck:
+            test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 20s
+        volumes:
+            - rabbitmq-data:/var/lib/rabbitmq
+
+    redis:
+        image: redis:7-alpine
+        ports:
+            - "6379:6379" # REDIS_CONNECTION_STRING
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 10s
+            timeout: 3s
+            retries: 5
+        # no volume: the template uses Redis as a cache only
+
+    mongo:
+        image: mongo:7
+        ports:
+            - "27017:27017" # MONGO_URI
+        healthcheck:
+            test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        volumes:
+            - mongo-data:/data/db
+
+# Optional: run the built app inside the network (usually you want `npm run dev` instead).
+#    app:
+#        build: .
+#        ports: ["3000:3000"]
+#        environment:
+#            QUEUE_CONNECTION_URL: amqp://guest:guest@rabbitmq:5672
+#            REDIS_CONNECTION_STRING: redis://redis:6379
+#            MONGO_URI: mongodb://mongo:27017
+#        depends_on:
+#            rabbitmq: { condition: service_healthy }
+#            redis: { condition: service_healthy }
+
+volumes:
+    rabbitmq-data:
+    mongo-data:

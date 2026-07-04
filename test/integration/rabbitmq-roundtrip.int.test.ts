@@ -13,7 +13,7 @@ describe.skipIf(!dockerAvailable)('RabbitMQ publish/consume round-trip', () => {
         process.env.QUEUE_CONNECTION_URL = inject('rabbitUrl');
         ({ Producer } = await import('../../src/config/producer'));
         ({ Consumer } = await import('../../src/consumer/consumer'));
-        rabbit = (await import('../../src/config/rabbitmq')).default();
+        rabbit = (await import('../../src/config/rabbitmq')).getRabbit();
         await rabbit.connect();
     });
 

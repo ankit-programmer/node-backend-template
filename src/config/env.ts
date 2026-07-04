@@ -1,7 +1,11 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config();
+// Under Vitest the local .env (which may hold real connection strings) must
+// never leak into tests; test/setup/env-guard.ts pre-seeds the guarded vars.
+if (!process.env.VITEST) {
+    dotenv.config();
+}
 
 const booleanish = z
     .enum(['true', 'false', '1', '0'])
@@ -14,6 +18,7 @@ const envSchema = z.object({
     SERVICE_NAME: z.string().default('backend-template'),
     LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).default('info'),
     LOG_TO_FILE: booleanish,
+    LOG_FILE_PATH: z.string().default('logs/app.log'),
 
     QUEUE_CONNECTION_URL: z.string().optional(),
     REDIS_CONNECTION_STRING: z.string().optional(),
@@ -47,7 +52,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     return parsed.data;
 }
 
-const env = loadEnv();
+export const env = loadEnv();
 
 export function requireEnv<K extends keyof Env>(key: K): NonNullable<Env[K]> {
     const value = env[key];
@@ -56,5 +61,3 @@ export function requireEnv<K extends keyof Env>(key: K): NonNullable<Env[K]> {
     }
     return value as NonNullable<Env[K]>;
 }
-
-export default env;

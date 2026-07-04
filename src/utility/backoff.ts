@@ -1,5 +1,5 @@
-import logger from '../logger';
-import { delay } from './index';
+import { logger } from '../logger';
+import { delay } from './delay';
 
 export interface RetryOptions {
     label: string;

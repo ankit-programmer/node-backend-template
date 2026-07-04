@@ -1,8 +1,10 @@
+// TEMPLATE: demo aggregated (batched) consumer — delete once you have a real one.
 import type { Channel, ConsumeMessage } from 'amqplib';
-import logger from '../logger';
+import { logger } from '../logger';
+import { toError } from '../utility/error';
 import type { IConsumer } from './consumer';
 
-export const batchConsumer: IConsumer = {
+export const batchExampleConsumer: IConsumer = {
     queue: 'batch_example',
     batch: 10,
     aggregate: {
@@ -13,10 +15,10 @@ export const batchConsumer: IConsumer = {
         for (const message of messages) {
             try {
                 const content = JSON.parse(message.content.toString());
-                logger.info(`[BatchConsumer] Processing message`, content);
+                logger.info('[BatchExampleConsumer] Processing message', { content });
                 channel.ack(message);
             } catch (error) {
-                logger.error('[BatchConsumer] Failed to process message', error);
+                logger.error('[BatchExampleConsumer] Failed to process message', { err: toError(error) });
                 channel.nack(message, false, false);
             }
         }

@@ -18,13 +18,14 @@
     "linter": {
         "enabled": true,
         "rules": {
-            "recommended": true,
+            "preset": "recommended",
             "suspicious": {
-                "noExplicitAny": "off",
+                "noExplicitAny": "error",
                 "noConsole": "warn"
             },
             "style": {
-                "noNonNullAssertion": "warn"
+                "noNonNullAssertion": "warn",
+                "noDefaultExport": "error"
             }
         }
     },
@@ -34,7 +35,21 @@
             "linter": {
                 "rules": {
                     "suspicious": {
-                        "noConsole": "off"
+                        "noConsole": "off",
+                        "noExplicitAny": "off"
+                    },
+                    "style": {
+                        "noDefaultExport": "off"
+                    }
+                }
+            }
+        },
+        {
+            "includes": ["**/*.config.ts"],
+            "linter": {
+                "rules": {
+                    "style": {
+                        "noDefaultExport": "off"
                     }
                 }
             }

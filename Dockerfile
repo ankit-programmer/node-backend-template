@@ -3,6 +3,9 @@
 FROM node:22-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
+# npm ci runs the prepare script, which needs the husky guard to exist (it exits
+# early here: no .git in the build context).
+COPY .husky/install.mjs .husky/
 RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
@@ -12,6 +15,7 @@ FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
+COPY .husky/install.mjs .husky/
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 USER node

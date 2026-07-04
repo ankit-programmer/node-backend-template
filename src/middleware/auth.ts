@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { requireEnv } from '../config/env';
-import { ApiError, Errors } from '../error/api-error';
+import { ApiError } from '../error/api-error';
 
 export enum AuthMethod {
     TOKEN = 'token',
@@ -47,7 +47,7 @@ export function auth(authMethods: AuthMethod[] = [AuthMethod.API_KEY]) {
         for (const method of authMethods) {
             const authenticate = authenticators[method];
             if (!authenticate) {
-                lastError = new ApiError(`Unknown auth method: ${method}`, 401, Errors.Authentication);
+                lastError = new ApiError(`Unknown auth method: ${method}`, 401);
                 continue;
             }
             try {
@@ -57,29 +57,26 @@ export function auth(authMethods: AuthMethod[] = [AuthMethod.API_KEY]) {
                 lastError = error;
             }
         }
-        next(
-            lastError ??
-                new ApiError('Authentication failed. Please authenticate yourself.', 401, Errors.Authentication),
-        );
+        next(lastError ?? new ApiError('Authentication failed. Please authenticate yourself.', 401));
     };
 }
 
 function tokenAuth(req: Request, res: Response): void {
     const header = req.header('authorization');
     const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined;
-    if (!token) throw new ApiError('Missing bearer token', 401, Errors.Authentication);
+    if (!token) throw new ApiError('Missing bearer token', 401);
     const secret = requireEnv('JWT_SECRET');
     try {
         res.locals.user = jwt.verify(token, secret) as TokenData;
     } catch {
-        throw new ApiError('Invalid or expired token', 401, Errors.Authentication);
+        throw new ApiError('Invalid or expired token', 401);
     }
 }
 
 function apiKeyAuth(req: Request): void {
     const apiKey = req.header('x-api-key');
     if (!apiKey || !timingSafeEqual(apiKey, requireEnv('MASTER_API_KEY'))) {
-        throw new ApiError('Invalid API key', 401, Errors.Authentication);
+        throw new ApiError('Invalid API key', 401);
     }
 }
 

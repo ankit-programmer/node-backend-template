@@ -1,14 +1,19 @@
 import { crc32 } from 'crc';
 import { createClient, RESP_TYPES } from 'redis';
 import { onShutdown } from '../lifecycle/shutdown';
-import logger from '../logger';
-import { compress, compressor, decompress } from '../utility/compression';
+import { logger } from '../logger';
+import { Compressor, compress, decompress } from '../utility/compression';
+import { toError } from '../utility/error';
 import { requireEnv } from './env';
 
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 type RedisClient = ReturnType<typeof createClient>;
 
+const MAX_RECONNECT_WAIT_MS = 30_000;
+
+// Unlike mongo/rabbitmq there is no connectionRegistry here: node-redis manages its
+// own reconnection, so a single module-level client is all the template needs.
 let client: RedisClient | undefined;
 
 export function getRedis(): RedisClient {
@@ -16,12 +21,12 @@ export function getRedis(): RedisClient {
         client = createClient({
             url: requireEnv('REDIS_CONNECTION_STRING'),
             socket: {
-                reconnectStrategy: (retries) => retries * 1000,
+                reconnectStrategy: (retries) => Math.min(retries * 1000, MAX_RECONNECT_WAIT_MS),
             },
         });
-        client.on('ready', () => logger.info('Connection Established to Redis!'));
-        client.on('error', (error) => logger.error(error));
-        client.connect().catch((error) => logger.error('[REDIS] Failed to connect', error));
+        client.on('ready', () => logger.info('[Redis] Connection established'));
+        client.on('error', (error) => logger.error('[Redis] Connection error', { err: toError(error) }));
+        client.connect().catch((error) => logger.error('[Redis] Failed to connect', { err: toError(error) }));
         const connected = client;
         onShutdown({ name: 'redis', close: () => connected.close() });
     }
@@ -33,7 +38,7 @@ export function redisStatus(): boolean | undefined {
     return client.isReady;
 }
 
-export async function cget(key: string, lib: compressor = compressor.BROTLI): Promise<string | null> {
+export async function cget(key: string, lib: Compressor = Compressor.BROTLI): Promise<string | null> {
     const buffers = getRedis().withTypeMapping({ [RESP_TYPES.BLOB_STRING]: Buffer });
     const rawValue = await buffers.get(key);
     if (!rawValue) return null;
@@ -44,7 +49,7 @@ export async function cset(
     key: string,
     value: string,
     ttlSecond: number = DEFAULT_TTL_SECONDS,
-    lib: compressor = compressor.BROTLI,
+    lib: Compressor = Compressor.BROTLI,
 ): Promise<boolean> {
     const buffer = await compress(value, lib);
     await getRedis().set(key, buffer, { EX: ttlSecond });
