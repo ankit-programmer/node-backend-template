@@ -1,15 +1,22 @@
 import EventEmitter from 'node:events';
 import amqp from 'amqplib';
-import { onShutdown } from '../lifecycle/shutdown';
-import logger from '../logger';
+import { logger } from '../logger';
 import { retryUntil } from '../utility/backoff';
+import { toError } from '../utility/error';
 import { requireEnv } from './env';
+import { connectionRegistry } from './registry';
 
 export type Connection = amqp.Connection;
 export type Channel = amqp.Channel;
 
+/**
+ * rabbitmq.ts and mongo.ts intentionally mirror each other — same member order,
+ * same lifecycle (single-flight connect, retry with backoff, reconnect on abrupt
+ * close, graceful close on shutdown). To add a new managed connection type,
+ * copy one of them and swap the driver calls.
+ */
 export class RabbitConnection extends EventEmitter {
-    private gracefulClose: boolean = false;
+    private gracefulClose = false;
     private connectionString: string;
     private connection?: Connection;
     private connectPromise?: Promise<void>;
@@ -20,7 +27,7 @@ export class RabbitConnection extends EventEmitter {
         this.connectionString = connectionString;
     }
 
-    public status() {
+    public status(): boolean {
         return !!this.connection;
     }
 
@@ -29,13 +36,17 @@ export class RabbitConnection extends EventEmitter {
         return this.connectPromise;
     }
 
+    public getConnection(): Connection | undefined {
+        return this.connection;
+    }
+
     private async setupConnection(): Promise<void> {
         const connection = await retryUntil(
             async (): Promise<Connection | undefined> => {
                 try {
                     return await amqp.connect(this.connectionString);
-                } catch (error: any) {
-                    logger.warn(`[RABBIT] Connect failed: ${error.message}`);
+                } catch (error) {
+                    logger.warn('[Rabbit] Connect failed', { err: toError(error) });
                     return undefined;
                 }
             },
@@ -46,21 +57,21 @@ export class RabbitConnection extends EventEmitter {
         this.initEventListeners();
     }
 
-    private initEventListeners() {
+    private initEventListeners(): void {
         if (!this.connection) return;
-        logger.info('[RABBIT] Connection established');
+        logger.info('[Rabbit] Connection established');
         this.emit('connect', this.connection);
 
-        this.connection.on('error', (error) => logger.error('[RABBIT] Connection error', error));
+        this.connection.on('error', (error) => logger.error('[Rabbit] Connection error', { err: toError(error) }));
         this.connection.on('close', () => {
             this.connection?.removeAllListeners();
             this.connection = undefined;
             if (this.gracefulClose) {
-                logger.info('[RABBIT] Connection closed gracefully');
+                logger.info('[Rabbit] Connection closed gracefully');
                 this.emit('gracefulClose');
                 return;
             }
-            logger.error('[RABBIT] Connection closed abruptly; reconnecting');
+            logger.error('[Rabbit] Connection closed abruptly; reconnecting');
             this.setupConnection();
         });
     }
@@ -68,32 +79,16 @@ export class RabbitConnection extends EventEmitter {
     public async closeConnection(): Promise<void> {
         this.gracefulClose = true;
         if (this.connection) {
-            logger.info('[RABBIT] Closing connection...');
+            logger.info('[Rabbit] Closing connection...');
             await this.connection.close();
         }
     }
-
-    public getConnection(): Connection | undefined {
-        return this.connection;
-    }
 }
 
-const instances = new Map<string, RabbitConnection>();
+const registry = connectionRegistry('rabbitmq', (connectionString) => new RabbitConnection(connectionString));
 
-export function rabbitStatus(): boolean | undefined {
-    if (instances.size === 0) return undefined;
-    return [...instances.values()].every((instance) => instance.status());
+export const rabbitStatus = registry.status;
+
+export function getRabbit(connectionString?: string): RabbitConnection {
+    return registry.get(connectionString ?? requireEnv('QUEUE_CONNECTION_URL'));
 }
-
-export default (connectionString?: string): RabbitConnection => {
-    const target = connectionString ?? requireEnv('QUEUE_CONNECTION_URL');
-    let instance = instances.get(target);
-    if (!instance) {
-        instance = new RabbitConnection(target);
-        instances.set(target, instance);
-        instance.connect().catch((error) => logger.error('[RABBIT] Failed to connect', error));
-        const connection = instance;
-        onShutdown({ name: 'rabbitmq', close: () => connection.closeConnection() });
-    }
-    return instance;
-};

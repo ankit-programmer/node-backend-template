@@ -1,5 +1,6 @@
-import env from '../config/env';
-import logger from '../logger';
+import { env } from '../config/env';
+import { logger } from '../logger';
+import { toError } from '../utility/error';
 
 interface ShutdownHook {
     name: string;
@@ -24,7 +25,7 @@ async function runHooks(): Promise<void> {
             await hook.close();
             logger.info(`[Shutdown] Closed ${hook.name}`);
         } catch (error) {
-            logger.error(`[Shutdown] Failed to close ${hook.name}`, error);
+            logger.error(`[Shutdown] Failed to close ${hook.name}`, { err: toError(error) });
         }
     }
 }
@@ -49,11 +50,11 @@ export function registerProcessHandlers(): void {
     process.on('SIGINT', () => shutdown(0));
     process.on('SIGTERM', () => shutdown(0));
     process.on('uncaughtException', (error) => {
-        logger.error('[Process] Uncaught exception', error);
+        logger.error('[Process] Uncaught exception', { err: error });
         shutdown(1);
     });
     process.on('unhandledRejection', (reason) => {
-        logger.error('[Process] Unhandled rejection', reason);
+        logger.error('[Process] Unhandled rejection', { err: toError(reason) });
         shutdown(1);
     });
 }

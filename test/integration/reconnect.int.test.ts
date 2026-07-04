@@ -24,7 +24,7 @@ describe.skipIf(!dockerAvailable)('broker restart recovery', () => {
         process.env.QUEUE_CONNECTION_URL = `amqp://localhost:${HOST_PORT}`;
         ({ Producer } = await import('../../src/config/producer'));
         const { Consumer } = await import('../../src/consumer/consumer');
-        rabbit = (await import('../../src/config/rabbitmq')).default();
+        rabbit = (await import('../../src/config/rabbitmq')).getRabbit();
         await rabbit.connect();
         consumer = new Consumer({
             queue: QUEUE,

@@ -1,15 +1,17 @@
-import { type Request, type Response, Router } from 'express';
-import { mongoStatus } from '../config/mongo';
-import { rabbitStatus } from '../config/rabbitmq';
-import { redisStatus } from '../config/redis';
+import { Router } from 'express';
+import { mongoStatus } from '../../config/mongo';
+import { rabbitStatus } from '../../config/rabbitmq';
+import { redisStatus } from '../../config/redis';
 
-const router = Router();
+export const healthRouter = Router();
 
-router.get('/live', (_req: Request, res: Response) => {
+// Deliberately outside the ok()/fail() envelope: liveness/readiness probes are
+// machine consumers (k8s, Docker HEALTHCHECK) that expect bare payloads.
+healthRouter.get('/live', (_req, res) => {
     res.json({ status: 'ok' });
 });
 
-router.get('/ready', (_req: Request, res: Response) => {
+healthRouter.get('/ready', (_req, res) => {
     const components = { rabbitmq: rabbitStatus(), redis: redisStatus(), mongo: mongoStatus() };
     const checks: Record<string, 'up' | 'down'> = {};
     let ready = true;
@@ -20,5 +22,3 @@ router.get('/ready', (_req: Request, res: Response) => {
     }
     res.status(ready ? 200 : 503).json({ status: ready ? 'ok' : 'degraded', checks });
 });
-
-export default router;

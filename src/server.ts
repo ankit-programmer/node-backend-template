@@ -1,7 +1,7 @@
 import { createApp } from './app';
-import env from './config/env';
+import { env } from './config/env';
 import { onShutdown, registerProcessHandlers } from './lifecycle/shutdown';
-import logger from './logger';
+import { logger } from './logger';
 
 registerProcessHandlers();
 

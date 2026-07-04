@@ -1,0 +1,10 @@
+/** Normalizes an unknown catch value into an Error for the standard `{ err }` log shape. */
+export function toError(value: unknown): Error {
+    if (value instanceof Error) return value;
+    if (typeof value === 'string') return new Error(value);
+    try {
+        return new Error(JSON.stringify(value) ?? String(value));
+    } catch {
+        return new Error(String(value));
+    }
+}

@@ -5,7 +5,7 @@ const dockerAvailable = inject('dockerAvailable');
 
 describe.skipIf(!dockerAvailable)('RPC over RabbitMQ', () => {
     const EXCHANGE = `rpc-echo-${process.pid}`;
-    let Service: typeof import('../../src/service/rabbitmq/rpc').Service;
+    let rpcClient: typeof import('../../src/config/rpc').rpcClient;
     let rabbit: import('../../src/config/rabbitmq').RabbitConnection;
     let echoConsumer: import('../../src/consumer/consumer').Consumer;
 
@@ -13,8 +13,8 @@ describe.skipIf(!dockerAvailable)('RPC over RabbitMQ', () => {
         process.env.QUEUE_CONNECTION_URL = inject('rabbitUrl');
         const { Producer } = await import('../../src/config/producer');
         const { Consumer } = await import('../../src/consumer/consumer');
-        ({ Service } = await import('../../src/service/rabbitmq/rpc'));
-        rabbit = (await import('../../src/config/rabbitmq')).default();
+        ({ rpcClient } = await import('../../src/config/rpc'));
+        rabbit = (await import('../../src/config/rabbitmq')).getRabbit();
         await rabbit.connect();
 
         echoConsumer = new Consumer({
@@ -38,14 +38,14 @@ describe.skipIf(!dockerAvailable)('RPC over RabbitMQ', () => {
     });
 
     it('call() resolves with the consumer reply for its correlationId', async () => {
-        const response = await Service(EXCHANGE).call({ n: 1 });
+        const response = await rpcClient(EXCHANGE).call({ n: 1 });
         expect(response).toEqual({ echoed: { n: 1 } });
     });
 
     it('resolves three concurrent calls with their own responses', async () => {
-        const service = Service(EXCHANGE);
+        const service = rpcClient(EXCHANGE);
         const responses = await Promise.all([service.call({ n: 1 }), service.call({ n: 2 }), service.call({ n: 3 })]);
-        expect(responses.map((r) => r.echoed.n).sort()).toEqual([1, 2, 3]);
+        expect(responses.map((r) => (r as { echoed: { n: number } }).echoed.n).sort()).toEqual([1, 2, 3]);
     });
 
     it('rejects with "Request timed out" when nothing replies', async () => {
@@ -58,7 +58,7 @@ describe.skipIf(!dockerAvailable)('RPC over RabbitMQ', () => {
             processor: (message: ConsumeMessage, channel: Channel) => channel.ack(message), // never replies
         });
         try {
-            await expect(Service(silent, { timeout: 3 }).call({ q: 1 })).rejects.toThrow('Request timed out');
+            await expect(rpcClient(silent, { timeout: 3 }).call({ q: 1 })).rejects.toThrow('Request timed out');
         } finally {
             await sink.stop();
         }

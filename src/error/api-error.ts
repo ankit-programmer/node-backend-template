@@ -1,17 +1,13 @@
-export class ApiError extends Error {
-    readonly code: number;
-    readonly type?: Errors;
+import type { ErrorDetail } from '../utility/response';
 
-    constructor(message: string, code: number, type?: Errors) {
+export class ApiError extends Error {
+    readonly status: number;
+    readonly details?: ErrorDetail[];
+
+    constructor(message: string, status = 500, details?: ErrorDetail[]) {
         super(message);
         this.name = 'ApiError';
-        this.code = code;
-        this.type = type;
+        this.status = status;
+        this.details = details;
     }
-}
-
-export enum Errors {
-    Authorization = 'Authorization',
-    Authentication = 'Authentication',
-    InvalidRequest = 'Invalid Request',
 }

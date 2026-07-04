@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { compressor } from '../../src/utility/compression';
+import { Compressor } from '../../src/utility/compression';
 
 const dockerAvailable = inject('dockerAvailable');
 
@@ -21,9 +21,9 @@ describe.skipIf(!dockerAvailable)('redis compressed cache', () => {
     });
 
     it.each([
-        compressor.SNAPPY,
-        compressor.GZIP,
-        compressor.BROTLI,
+        Compressor.SNAPPY,
+        Compressor.GZIP,
+        Compressor.BROTLI,
     ])('cset/cget round-trips a value with %s', async (lib) => {
         const key = `it:${lib}:${process.pid}`;
         await redis.cset(key, `value for ${lib}`, 60, lib);

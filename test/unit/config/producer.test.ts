@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { compressor, decompress } from '../../../src/utility/compression';
+import { Compressor, decompress } from '../../../src/utility/compression';
 import { type FakeRabbitService, makeFakeRabbitService } from '../../helpers/fake-amqp';
 
 const state = vi.hoisted(() => ({ service: undefined as unknown }));
 
 vi.mock('../../../src/config/rabbitmq', () => ({
-    default: () => state.service,
+    getRabbit: () => state.service,
     rabbitStatus: () => true,
 }));
 
@@ -48,10 +48,10 @@ describe('RabbitMqProducer', () => {
 
     it('compresses the payload and stamps contentEncoding', async () => {
         const { producer, channel } = await freshProducer();
-        await producer.publish('ex', { big: 'payload' }, { compressor: compressor.GZIP });
+        await producer.publish('ex', { big: 'payload' }, { compressor: Compressor.GZIP });
         const [, , payload, options] = channel.publish.mock.calls[0];
-        expect(options.contentEncoding).toBe(compressor.GZIP);
-        await expect(decompress(payload, compressor.GZIP)).resolves.toBe(JSON.stringify({ big: 'payload' }));
+        expect(options.contentEncoding).toBe(Compressor.GZIP);
+        await expect(decompress(payload, Compressor.GZIP)).resolves.toBe(JSON.stringify({ big: 'payload' }));
     });
 
     it('retries failed confirms and eventually succeeds', async () => {

@@ -21,19 +21,19 @@ vi.mock('../../../src/consumer/consumer', () => ({
     },
 }));
 
-import { Service } from '../../../src/service/rabbitmq/rpc';
+import { rpcClient } from '../../../src/config/rpc';
 
 let uniqueId = 0;
 function freshService(options?: { timeout?: number; concurrency?: number }) {
     // unique name per test: the factory memoizes by name+options
-    return Service(`svc-${++uniqueId}`, options);
+    return rpcClient(`svc-${++uniqueId}`, options);
 }
 
 function lastProcessor() {
     return mocks.consumerCalls[mocks.consumerCalls.length - 1].processor;
 }
 
-describe('RPC Service', () => {
+describe('rpcClient', () => {
     afterEach(() => {
         vi.useRealTimers();
         mocks.producer.isExchangeAvailable.mockClear().mockResolvedValue(true as never);
@@ -42,16 +42,16 @@ describe('RPC Service', () => {
     });
 
     it('is a factory, not a constructor', () => {
-        expect(() => new (Service as any)('nope')).toThrow(TypeError);
+        expect(() => new (rpcClient as any)('nope')).toThrow(TypeError);
         const service = freshService();
         expect(typeof service.call).toBe('function');
         expect(typeof service.publish).toBe('function');
     });
 
     it('memoizes instances by name and options', () => {
-        const a = Service('memo-test', { timeout: 5 });
-        const b = Service('memo-test', { timeout: 5 });
-        const c = Service('memo-test', { timeout: 9 });
+        const a = rpcClient('memo-test', { timeout: 5 });
+        const b = rpcClient('memo-test', { timeout: 5 });
+        const c = rpcClient('memo-test', { timeout: 9 });
         expect(a).toBe(b);
         expect(a).not.toBe(c);
     });

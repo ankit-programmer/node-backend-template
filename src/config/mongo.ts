@@ -1,14 +1,21 @@
 import EventEmitter from 'node:events';
 import { type Db, MongoClient } from 'mongodb';
-import { onShutdown } from '../lifecycle/shutdown';
-import logger from '../logger';
+import { logger } from '../logger';
 import { retryUntil } from '../utility/backoff';
+import { toError } from '../utility/error';
 import { requireEnv } from './env';
+import { connectionRegistry } from './registry';
 
-const RETRY_INTERVAL = 5000; // in millis
+const RETRY_INTERVAL_MS = 5000;
 
+/**
+ * mongo.ts and rabbitmq.ts intentionally mirror each other — same member order,
+ * same lifecycle (single-flight connect, retry with backoff, reconnect on abrupt
+ * close, graceful close on shutdown). To add a new managed connection type,
+ * copy one of them and swap the driver calls.
+ */
 export class MongoService extends EventEmitter {
-    private gracefulClose: boolean = false;
+    private gracefulClose = false;
     private connectionString: string;
     private connection?: MongoClient;
     private connectPromise?: Promise<void>;
@@ -19,12 +26,12 @@ export class MongoService extends EventEmitter {
         this.connectionString = connectionString;
     }
 
-    public status() {
+    public status(): boolean {
         return !!this.connection;
     }
 
     public connect(): Promise<void> {
-        this.connectPromise ??= this.setupConnection().then(() => undefined);
+        this.connectPromise ??= this.setupConnection();
         return this.connectPromise;
     }
 
@@ -46,61 +53,48 @@ export class MongoService extends EventEmitter {
                     const client = new MongoClient(this.connectionString);
                     return await client.connect();
                 } catch (error) {
-                    logger.error('[MONGO](setupConnection)', error);
+                    logger.warn('[Mongo] Connect failed', { err: toError(error) });
                     this.emit('retry');
                     return undefined;
                 }
             },
-            { label: 'mongo-connect', baseMs: RETRY_INTERVAL, shouldStop: () => this.gracefulClose },
+            { label: 'mongo-connect', baseMs: RETRY_INTERVAL_MS, shouldStop: () => this.gracefulClose },
         );
         if (!connection) return;
         this.connection = connection;
         this.initEventListeners();
     }
 
-    private initEventListeners() {
+    private initEventListeners(): void {
         if (!this.connection) return;
-        logger.info(`[MONGO](onConnectionReady) Connection established to ${this.connectionString}`);
+        logger.info('[Mongo] Connection established');
         this.emit('connect', this.connection);
 
-        this.connection.on('serverClosed', (error: any) => {
+        this.connection.on('serverClosed', () => {
             this.connection = undefined;
-
             if (this.gracefulClose) {
-                logger.info('[MONGO](onConnectionClosed) Gracefully');
+                logger.info('[Mongo] Connection closed gracefully');
                 this.emit('gracefulClose');
-            } else {
-                logger.error('[MONGO](onConnectionClosed) Abruptly', error);
-                this.setupConnection();
+                return;
             }
+            logger.error('[Mongo] Connection closed abruptly; reconnecting');
+            this.setupConnection();
         });
     }
 
     public async closeConnection(): Promise<void> {
         this.gracefulClose = true;
         if (this.connection) {
-            logger.info('[MONGO](closeConnection) Closing connection...');
+            logger.info('[Mongo] Closing connection...');
             await this.connection.close();
         }
     }
 }
 
-const instances = new Map<string, MongoService>();
+const registry = connectionRegistry('mongo', (connectionString) => new MongoService(connectionString));
 
-export function mongoStatus(): boolean | undefined {
-    if (instances.size === 0) return undefined;
-    return [...instances.values()].every((instance) => instance.status());
+export const mongoStatus = registry.status;
+
+export function getMongo(connectionString?: string): MongoService {
+    return registry.get(connectionString ?? requireEnv('MONGO_URI'));
 }
-
-export default (connectionString?: string): MongoService => {
-    const target = connectionString ?? requireEnv('MONGO_URI');
-    let instance = instances.get(target);
-    if (!instance) {
-        instance = new MongoService(target);
-        instances.set(target, instance);
-        instance.connect().catch((error) => logger.error('[MONGO] Failed to connect', error));
-        const service = instance;
-        onShutdown({ name: 'mongo', close: () => service.closeConnection() });
-    }
-    return instance;
-};

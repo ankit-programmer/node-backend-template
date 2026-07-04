@@ -1,5 +1,5 @@
 import type { Options } from 'amqplib';
-import type { compressor } from './compression';
+import type { Compressor } from './compression';
 
 export interface Metadata {
     exchange?: {
@@ -7,7 +7,7 @@ export interface Metadata {
         type?: 'direct' | 'topic' | 'fanout';
         routingKey?: string;
     };
-    compressor?: compressor;
+    compressor?: Compressor;
     correlationId?: string;
     replyTo?: string;
     exclusive?: boolean;
